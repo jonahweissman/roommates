@@ -1,0 +1,10 @@
+[package]
+name = "billing-period-proportion"
+version = "0.1.0"
+authors = ["Jonah Weissman <jonahrweissman@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+clap = {version = "2.33.1", features = ["yaml"]}
+chrono = "0.4.11"
+csv = "1.1"
