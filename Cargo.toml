@@ -1,5 +1,5 @@
 [package]
-name = "billing-period-proportion"
+name = "roommates"
 version = "0.1.0"
 authors = ["Jonah Weissman <jonahrweissman@gmail.com>"]
 edition = "2018"
