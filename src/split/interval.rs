@@ -1,10 +1,12 @@
 use chrono::naive::NaiveDate;
 use csv::StringRecord;
 
+use crate::roommate::Roommate;
+
 pub struct OwnedInterval {
     pub start: NaiveDate,
     pub end: NaiveDate,
-    pub owner_name: String,
+    pub owner: Roommate,
     pub weight: u32,
 }
 
@@ -16,7 +18,7 @@ impl OwnedInterval {
         let end = NaiveDate::parse_from_str(sr.get(3).expect("Missing end date"), "%m/%d/%Y")
             .expect("Invalid end date");
         assert!(start < end, "start of interval must be less than end");
-        let owner_name = String::from(sr.get(0).expect("Missing person"));
+        let owner = Roommate::new(String::from(sr.get(0).expect("Missing person")));
         let weight = sr
             .get(1)
             .expect("Missing count")
@@ -25,7 +27,7 @@ impl OwnedInterval {
         OwnedInterval {
             start,
             end,
-            owner_name,
+            owner,
             weight,
         }
     }

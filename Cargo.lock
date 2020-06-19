@@ -39,7 +39,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31accafdb70df7871592c058eca3985b71104e15ac32f64706022c58867da931"
 dependencies = [
  "lazy_static",
- "memchr",
+ "memchr 2.3.3",
  "regex-automata",
  "serde",
 ]
@@ -79,6 +79,17 @@ dependencies = [
 
 [[package]]
 name = "csv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ef22b37c7a51c564a365892c012dc0271221fdcc64c69b19ba4d6fa8bd96d9c"
+dependencies = [
+ "byteorder",
+ "memchr 1.0.2",
+ "rustc-serialize",
+]
+
+[[package]]
+name = "csv"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00affe7f6ab566df61b4be3ce8cf16bc2576bca0963ceb0955e45d514bf9a279"
@@ -96,7 +107,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b2466559f260f48ad25fe6317b3c8dac77b5bdb5763ac7d9d6103530663bc90"
 dependencies = [
- "memchr",
+ "memchr 2.3.3",
 ]
 
 [[package]]
@@ -143,6 +154,15 @@ checksum = "9457b06509d27052635f90d6466700c65095fdf75409b3fbdd903e988b886f49"
 
 [[package]]
 name = "memchr"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "148fab2e51b4f1cfc66da2a7c32981d1d3c083a803978268bb11fe4b86925e7a"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "memchr"
 version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3728d817d99e5ac407411fa471ff9800a778d88a24685968b36824eaf4bee400"
@@ -181,9 +201,16 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "csv",
+ "csv 1.1.3",
  "itertools",
+ "steel-cent",
 ]
+
+[[package]]
+name = "rustc-serialize"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "ryu"
@@ -196,6 +223,16 @@ name = "serde"
 version = "1.0.112"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "736aac72d1eafe8e5962d1d1c3d99b0df526015ba40915cb3c49d042e92ec243"
+
+[[package]]
+name = "steel-cent"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8835ce3377f7c77f2ea528e889ae1fef4f2b42c33cd95b47e7702a0cf2ebae77"
+dependencies = [
+ "csv 0.15.0",
+ "lazy_static",
+]
 
 [[package]]
 name = "strsim"
