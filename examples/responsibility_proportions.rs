@@ -1,14 +1,10 @@
 use chrono::naive::NaiveDate;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use csv::StringRecord;
 use std::fs::File;
 
-mod split;
-use split::interval::OwnedInterval;
-use split::NaiveDateInterval;
-
-mod share;
-
-mod roommate;
+use roommates::responsibility::{self, interval::{ResponsibilityInterval, NaiveDateInterval}};
+use roommates::roommate::Roommate;
 
 fn main() {
     let matches = App::new("roommates")
@@ -60,6 +56,27 @@ fn date_from_arg_string(matches: &ArgMatches, arg: &str) -> NaiveDate {
     ))
 }
 
+trait FromStringRecord {
+    fn from_string_record(sr: StringRecord) -> Self;
+}
+
+impl FromStringRecord for ResponsibilityInterval {
+    fn from_string_record(sr: StringRecord) -> Self {
+        assert_eq!(sr.len(), 4, "Found row with wrong number of columns");
+        let start = NaiveDate::parse_from_str(sr.get(2).expect("Missing start date"), "%m/%d/%Y")
+            .expect("Invalid start date");
+        let end = NaiveDate::parse_from_str(sr.get(3).expect("Missing end date"), "%m/%d/%Y")
+            .expect("Invalid end date");
+        let roommate = Roommate::new(String::from(sr.get(0).expect("Missing person")));
+        let count = sr
+            .get(1)
+            .expect("Missing count")
+            .parse::<u32>()
+            .expect("Invalid count");
+        ResponsibilityInterval::new(roommate, count, (start, end))
+    }
+}
+
 fn split(matches: &ArgMatches) {
     let billing_period = NaiveDateInterval::new(
         date_from_arg_string(&matches, "start"),
@@ -70,16 +87,15 @@ fn split(matches: &ArgMatches) {
     );
     let intervals = rdr
         .records()
-        .map(|r| OwnedInterval::from_string_record(r.expect("bad record")))
+        .map(|r| ResponsibilityInterval::from_string_record(r.expect("bad record")))
         .collect::<Vec<_>>();
     println!(
         "weighted value over billing period: {}",
-        split::proportion_of_interval(&intervals, &billing_period)
+        responsibility::proportion_of_interval(&intervals, &billing_period)
     );
-    let map = split::individual_responsibilities(&intervals, &billing_period);
+    let map = responsibility::individual_responsibilities(&intervals, &billing_period);
     for name in map.keys() {
         println!("{}: {}", name, map.get(name).unwrap());
     }
 }
 
-fn share(matches: &ArgMatches) {}
