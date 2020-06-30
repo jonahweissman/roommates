@@ -1,16 +1,50 @@
 use num::rational::Rational;
 use std::collections::HashMap;
-use steel_cent::currency::USD;
 use steel_cent::Money;
 
-use super::roommate::Roommate;
 use super::bill::Bill;
+use super::roommate::Roommate;
+
+/// Takes a vector (or other collection that can be turned into an iter)
+/// of [`Bill`]s with corresponding maps for each each Bill of
+/// how much each roommate is personally responsible for and then outputs
+/// a new HashMap that accumulates all
+///
+/// Consumes the collection, but not the bills and hashmaps.
+///
+/// ## Panics
+/// Panics if bills are not all in the same currency.
+/// Panics if the list is empty.
+pub fn split_bill_list<'a, I>(bills_with_usage_proportions: I) -> HashMap<Roommate, Money>
+where
+    I: IntoIterator<Item = (&'a Bill, &'a HashMap<Roommate, Rational>)>,
+{
+    let mut bills_with_usage_proportions = bills_with_usage_proportions.into_iter().peekable();
+    let currency = bills_with_usage_proportions
+        .peek()
+        .expect("must include at least one bill")
+        .0
+        .amount_due()
+        .currency;
+
+    bills_with_usage_proportions
+        .inspect(|(bill, _)| {
+            assert!(
+                bill.amount_due().currency == currency,
+                "all bills must have the same currency"
+            )
+        })
+        .map(|(bill, usage_proportion)| bill.split(usage_proportion).into_iter())
+        .flatten()
+        .fold(HashMap::new(), |mut m, (k, v)| {
+            let val = m.entry(k).or_insert(Money::zero(currency));
+            *val = *val + v;
+            m
+        })
+}
 
 impl Bill {
-    fn split(
-        &self,
-        usage_proportion: &HashMap<Roommate, Rational>,
-    ) -> HashMap<Roommate, Money> {
+    fn split(&self, usage_proportion: &HashMap<Roommate, Rational>) -> HashMap<Roommate, Money> {
         let num_roommates = usage_proportion.len() as i64;
         usage_proportion
             .keys()
@@ -24,20 +58,6 @@ impl Bill {
             })
             .collect()
     }
-}
-
-pub fn split_bill_list(
-    bills_with_usage_proportions: &Vec<(&Bill, &HashMap<Roommate, Rational>)>,
-) -> HashMap<Roommate, Money> {
-    bills_with_usage_proportions
-        .iter()
-        .map(|(bill, usage_proportion)| bill.split(usage_proportion).into_iter())
-        .flatten()
-        .fold(HashMap::new(), |mut m, (k, v)| {
-            let val = m.entry(k).or_insert(Money::zero(USD));
-            *val = *val + v;
-            m
-        })
 }
 
 trait MulRational {
@@ -56,6 +76,16 @@ impl MulRational for Money {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::responsibility::interval::DateInterval;
+    use chrono::naive::NaiveDate;
+    use steel_cent::currency::USD;
+
+    fn new_bill(total: Money, shared: Money) -> Bill {
+        // we only care about the total and shared for these tests
+        let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
+        let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
+        Bill::new(total, Some(shared), DateInterval::new(start, end))
+    }
 
     #[test]
     fn regular_bill() {
@@ -68,7 +98,7 @@ mod test {
             roomies.into_iter().zip(usage_proportions).collect();
         let total = Money::of_major_minor(USD, 99, 99);
         let shared_cost = Money::of_major_minor(USD, 35, 46);
-        let bill = Bill::new(total, Some(shared_cost));
+        let bill = new_bill(total, shared_cost);
         let share = &bill.split(&usage);
         let bob_share = *share.get(&Roommate::new(String::from("bob"))).unwrap();
         assert_eq!(bob_share, shared_cost / 2 + (total - shared_cost) * 0.25);
@@ -86,14 +116,20 @@ mod test {
         let total = Money::of_major_minor(USD, 99, 99);
         let shared_cost = Money::of_major_minor(USD, 35, 46);
         let bills = vec![
-            Bill::new(total, Some(shared_cost)),
-            Bill::new(total * 2, Some(shared_cost * 2)),
+            new_bill(total, shared_cost),
+            new_bill(total * 2, shared_cost * 2),
         ];
-        let share = split_bill_list(&bills.iter().map(|bill| (bill, &usage)).collect());
+        let share = split_bill_list(bills.iter().map(|bill| (bill, &usage)).collect::<Vec<_>>());
         let bob_share = *share.get(&Roommate::new(String::from("bob"))).unwrap();
         let expected = shared_cost.checked_mul_f(1.5).unwrap()
             + (total - shared_cost).checked_mul_f(0.25).unwrap() * 3;
         assert_eq!(bob_share, expected);
+        assert_eq!(
+            bills[0].amount_due(),
+            bills[0].amount_due(),
+            "bills shouldn't be consumed"
+        );
+        assert!(usage == usage);
     }
 
     #[test]
@@ -108,12 +144,18 @@ mod test {
         let total = Money::of_major_minor(USD, 0, 0);
         let shared_cost = Money::of_major_minor(USD, 0, 0);
         let bills = vec![
-            Bill::new(total, Some(shared_cost)),
-            Bill::new(total * 2, Some(shared_cost * 2)),
+            new_bill(total, shared_cost),
+            new_bill(total * 2, shared_cost * 2),
         ];
-        let share = split_bill_list(&bills.iter().map(|bill| (bill, &usage)).collect());
+        let bill_list: Vec<_> = bills.iter().map(|bill| (bill, &usage)).collect();
+        let share = split_bill_list(bill_list);
         let bob_share = *share.get(&Roommate::new(String::from("bob"))).unwrap();
         let expected = Money::zero(USD);
         assert_eq!(bob_share, expected);
+        assert_eq!(
+            bills[0].amount_due(),
+            bills[0].amount_due(),
+            "bills shouldn't be consumed"
+        );
     }
 }

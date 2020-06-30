@@ -5,16 +5,20 @@ use super::super::roommate::Roommate;
 pub struct ResponsibilityInterval {
     roommate: Roommate,
     responsible_for_count: u32,
-    interval: (NaiveDate, NaiveDate),
+    interval: DateInterval,
 }
 
 impl ResponsibilityInterval {
     pub fn new(
         roommate: Roommate,
         responsible_for_count: u32,
-        interval: (NaiveDate, NaiveDate)
+        interval: (NaiveDate, NaiveDate),
     ) -> Self {
-        assert!(interval.0 < interval.1, "start of interval must be less than end");
+        assert!(
+            interval.0 < interval.1,
+            "start of interval must be less than end"
+        );
+        let interval = DateInterval::new(interval.0, interval.1);
         ResponsibilityInterval {
             roommate,
             responsible_for_count,
@@ -40,11 +44,11 @@ impl ResponsibilityInterval {
 }
 
 #[derive(Debug)]
-pub struct NaiveDateInterval(NaiveDate, NaiveDate);
+pub struct DateInterval(NaiveDate, NaiveDate);
 
-impl NaiveDateInterval {
+impl DateInterval {
     pub fn new(start: NaiveDate, end: NaiveDate) -> Self {
-        NaiveDateInterval(start, end)
+        DateInterval(start, end)
     }
 
     pub fn interval(&self) -> (NaiveDate, NaiveDate) {

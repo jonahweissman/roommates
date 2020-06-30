@@ -1,6 +1,7 @@
 
 impl Bill {
-    fn shared_cost(&mut self, bill_history: &Vec<(Bill, u32)>) {
-        let 
+    fn calculate_shared_cost(&mut self, bill_history: &Vec<(Bill, u32)>) {
+
+        Bill.shared_cost = shared_cost;
     }
 }

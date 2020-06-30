@@ -1,52 +1,39 @@
 use chrono::naive::NaiveDate;
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{App, Arg, ArgMatches};
 use csv::StringRecord;
 use std::fs::File;
 
-use roommates::responsibility::{self, interval::{ResponsibilityInterval, NaiveDateInterval}};
+use roommates::responsibility::{
+    self,
+    interval::{DateInterval, ResponsibilityInterval},
+};
 use roommates::roommate::Roommate;
 
 fn main() {
-    let matches = App::new("roommates")
+    let matches = App::new("responsibilities")
         .version("0.1.0")
-        .about("Calculating shared living expenses")
-        .subcommand(
-            SubCommand::with_name("split")
-                .about("Determine individuals responsibilities in a billing period")
-                .arg(
-                    Arg::with_name("start")
-                        .help("start of billing period")
-                        .required(true)
-                        .index(1),
-                )
-                .arg(
-                    Arg::with_name("end")
-                        .help("end of billing period")
-                        .required(true)
-                        .index(2),
-                )
-                .arg(
-                    Arg::with_name("intervals")
-                        .help("CSV file giving intervals when people were responsible")
-                        .required(true)
-                        .index(3),
-                ),
+        .about("Determine individuals responsibilities in a billing period")
+        .arg(
+            Arg::with_name("start")
+                .help("start of billing period")
+                .required(true)
+                .index(1),
         )
-        .subcommand(
-            SubCommand::with_name("share")
-                .about("Determine final dollar values to be paid by each roommmate")
-                .arg(Arg::with_name("water").required(true).index(1)),
+        .arg(
+            Arg::with_name("end")
+                .help("end of billing period")
+                .required(true)
+                .index(2),
+        )
+        .arg(
+            Arg::with_name("intervals")
+                .help("CSV file giving intervals when people were responsible")
+                .required(true)
+                .index(3),
         )
         .get_matches();
 
-    match matches.subcommand() {
-        ("split", Some(sub_m)) => {
-            split(sub_m);
-        }
-        _ => {
-            println!("command not recognized");
-        }
-    }
+    split(&matches);
 }
 
 fn date_from_arg_string(matches: &ArgMatches, arg: &str) -> NaiveDate {
@@ -78,7 +65,7 @@ impl FromStringRecord for ResponsibilityInterval {
 }
 
 fn split(matches: &ArgMatches) {
-    let billing_period = NaiveDateInterval::new(
+    let billing_period = DateInterval::new(
         date_from_arg_string(&matches, "start"),
         date_from_arg_string(&matches, "end"),
     );
@@ -98,4 +85,3 @@ fn split(matches: &ArgMatches) {
         println!("{}: {}", name, map.get(name).unwrap());
     }
 }
-

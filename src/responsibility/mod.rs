@@ -5,11 +5,11 @@ use std::collections::HashMap;
 
 use super::roommate::Roommate;
 pub mod interval;
-use interval::{NaiveDateInterval, ResponsibilityInterval};
+use interval::{DateInterval, ResponsibilityInterval};
 
 pub fn proportion_of_interval(
     intervals: &Vec<ResponsibilityInterval>,
-    billing_period: &NaiveDateInterval,
+    billing_period: &DateInterval,
 ) -> Rational {
     let (start, end) = billing_period.interval();
     Rational::new(
@@ -20,7 +20,7 @@ pub fn proportion_of_interval(
 
 fn total_cost_in_interval(
     intervals: &Vec<&ResponsibilityInterval>,
-    billing_period: &NaiveDateInterval,
+    billing_period: &DateInterval,
 ) -> u32 {
     let (start, end) = billing_period.interval();
     intervals
@@ -41,7 +41,7 @@ fn total_cost_in_interval(
 /// is responsible for
 pub fn individual_responsibilities(
     intervals: &Vec<ResponsibilityInterval>,
-    billing_period: &NaiveDateInterval,
+    billing_period: &DateInterval,
 ) -> HashMap<Roommate, Rational> {
     intervals
         .iter()
@@ -58,7 +58,7 @@ pub fn individual_responsibilities(
 
 fn proportion_by_roommate(
     intervals: &Vec<ResponsibilityInterval>,
-    billing_period: &NaiveDateInterval,
+    billing_period: &DateInterval,
     roommate: &Roommate,
 ) -> Rational {
     let total_cost = total_cost_in_interval(&intervals.iter().collect(), billing_period);
@@ -67,7 +67,10 @@ fn proportion_by_roommate(
     }
     Rational::new(
         total_cost_in_interval(
-            &intervals.iter().filter(|i| i.roommate() == roommate).collect(),
+            &intervals
+                .iter()
+                .filter(|i| i.roommate() == roommate)
+                .collect(),
             billing_period,
         ) as isize,
         total_cost as isize,
@@ -76,20 +79,20 @@ fn proportion_by_roommate(
 
 #[cfg(test)]
 mod test {
-    use chrono::naive::NaiveDate;
     use super::*;
+    use chrono::naive::NaiveDate;
 
     #[test]
     fn whole_interval() {
         let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
-        let intervals = vec![ResponsibilityInterval::new (
+        let intervals = vec![ResponsibilityInterval::new(
             Roommate::new(String::from("me")),
             1,
             (start, end),
         )];
         assert_eq!(
-            proportion_of_interval(&intervals, &NaiveDateInterval::new(start, end)),
+            proportion_of_interval(&intervals, &DateInterval::new(start, end)),
             Rational::new(1 as isize, 1 as isize)
         );
     }
@@ -99,22 +102,20 @@ mod test {
         let start = NaiveDate::parse_from_str("01/10/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
         let intervals = vec![
-            ResponsibilityInterval::new (
+            ResponsibilityInterval::new(
                 Roommate::new(String::from("me")),
                 2,
-                (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(),
-                end),
+                (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
             ),
-            ResponsibilityInterval::new (
+            ResponsibilityInterval::new(
                 Roommate::new(String::from("someone")),
                 4,
-                (start,
-                NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
+                (start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
         ];
         let correct_proportion = (4.0 * 3.0 + 2.0 * 2.0) / 10.0;
         assert_eq!(
-            proportion_of_interval(&intervals, &NaiveDateInterval::new(start, end)),
+            proportion_of_interval(&intervals, &DateInterval::new(start, end)),
             Rational::approximate_float(correct_proportion).unwrap(),
         );
     }
@@ -127,19 +128,23 @@ mod test {
             ResponsibilityInterval::new(
                 Roommate::new(String::from("me")),
                 2,
-                (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(),
-                NaiveDate::parse_from_str("01/20/21", "%D").unwrap()),
+                (
+                    NaiveDate::parse_from_str("01/18/20", "%D").unwrap(),
+                    NaiveDate::parse_from_str("01/20/21", "%D").unwrap(),
+                ),
             ),
             ResponsibilityInterval::new(
                 Roommate::new(String::from("someone")),
                 4,
-                (NaiveDate::parse_from_str("01/10/19", "%D").unwrap(),
-                NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
+                (
+                    NaiveDate::parse_from_str("01/10/19", "%D").unwrap(),
+                    NaiveDate::parse_from_str("01/13/20", "%D").unwrap(),
+                ),
             ),
         ];
         let correct_proportion = (4.0 * 3.0 + 2.0 * 2.0) / 10.0;
         assert_eq!(
-            proportion_of_interval(&intervals, &NaiveDateInterval::new(start, end)),
+            proportion_of_interval(&intervals, &DateInterval::new(start, end)),
             Rational::approximate_float(correct_proportion).unwrap()
         );
     }
@@ -148,7 +153,7 @@ mod test {
         let start = NaiveDate::parse_from_str("01/10/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
         let intervals = vec![
-            ResponsibilityInterval::new (
+            ResponsibilityInterval::new(
                 Roommate::new(String::from("me")),
                 2,
                 (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
@@ -159,7 +164,7 @@ mod test {
                 (start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
         ];
-        let table = individual_responsibilities(&intervals, &NaiveDateInterval::new(start, end));
+        let table = individual_responsibilities(&intervals, &DateInterval::new(start, end));
         let total = (4.0 * 3.0 + 2.0 * 2.0) / 10.0;
         assert_eq!(
             *table.get(&intervals[0].roommate()).unwrap(),
@@ -178,10 +183,12 @@ mod test {
         let intervals = vec![ResponsibilityInterval::new(
             Roommate::new(String::from("me")),
             1,
-            (NaiveDate::parse_from_str("01/02/19", "%D").unwrap(),
-            NaiveDate::parse_from_str("02/02/19", "%D").unwrap()),
+            (
+                NaiveDate::parse_from_str("01/02/19", "%D").unwrap(),
+                NaiveDate::parse_from_str("02/02/19", "%D").unwrap(),
+            ),
         )];
-        let billing_period = NaiveDateInterval::new(start, end);
+        let billing_period = DateInterval::new(start, end);
         assert_eq!(
             proportion_of_interval(&intervals, &billing_period),
             Rational::from_integer(0)

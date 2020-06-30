@@ -1,22 +1,21 @@
 use steel_cent::Money;
-use steel_cent::currency::USD;
 
-use super::responsibility::interval::NaiveDateInterval;
+use super::responsibility::interval::DateInterval;
 
 pub struct Bill {
     amount_due: Money,
     shared_cost: Money,
-    interval: Option<NaiveDateInterval>,
+    period: DateInterval,
 }
 
 impl Bill {
-    pub fn new(amount_due: Money, shared_cost: Option<Money>) -> Self {
-        let shared_cost = shared_cost.unwrap_or(Money::zero(USD));
+    pub fn new(amount_due: Money, shared_cost: Option<Money>, period: DateInterval) -> Self {
+        let shared_cost = shared_cost.unwrap_or(Money::zero(amount_due.currency));
         assert!(shared_cost <= amount_due);
         Bill {
             amount_due,
             shared_cost,
-            interval: None,
+            period,
         }
     }
 
