@@ -1,6 +1,6 @@
 use chrono::naive::NaiveDate;
 
-use super::super::roommate::Roommate;
+use super::roommate::Roommate;
 
 pub struct ResponsibilityInterval {
     roommate: Roommate,
@@ -14,10 +14,6 @@ impl ResponsibilityInterval {
         responsible_for_count: u32,
         interval: (NaiveDate, NaiveDate),
     ) -> Self {
-        assert!(
-            interval.0 < interval.1,
-            "start of interval must be less than end"
-        );
         let interval = DateInterval::new(interval.0, interval.1);
         ResponsibilityInterval {
             roommate,
@@ -43,12 +39,19 @@ impl ResponsibilityInterval {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DateInterval(NaiveDate, NaiveDate);
 
 impl DateInterval {
     pub fn new(start: NaiveDate, end: NaiveDate) -> Self {
+        assert!(start < end, "start of interval must be less than end");
         DateInterval(start, end)
+    }
+
+    pub fn from_strs(start: &str, end: &str) -> Self {
+        let start = NaiveDate::parse_from_str(start, "%D").expect("Invalid start date");
+        let end = NaiveDate::parse_from_str(end, "%D").expect("Invalid end date");
+        DateInterval::new(start, end)
     }
 
     pub fn interval(&self) -> (NaiveDate, NaiveDate) {

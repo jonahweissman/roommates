@@ -1,20 +1,22 @@
 use itertools::Itertools;
-use num::rational::Rational;
+use num::rational::Ratio;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 
-use super::roommate::Roommate;
-pub mod interval;
-use interval::{DateInterval, ResponsibilityInterval};
+use super::roommate::{Roommate, RoommateGroup};
+use super::interval::{DateInterval, ResponsibilityInterval};
+pub mod split;
+use split::ResponsibilitySplit;
 
+/// average occupancy
 pub fn proportion_of_interval(
     intervals: &Vec<ResponsibilityInterval>,
     billing_period: &DateInterval,
-) -> Rational {
+) -> Ratio<u32> {
     let (start, end) = billing_period.interval();
-    Rational::new(
-        total_cost_in_interval(&intervals.iter().collect(), &billing_period) as isize,
-        end.signed_duration_since(start).num_days() as isize,
+    Ratio::new(
+        total_cost_in_interval(&intervals.iter().collect(), &billing_period),
+        end.signed_duration_since(start).num_days() as u32,
     )
 }
 
@@ -37,48 +39,52 @@ fn total_cost_in_interval(
         .sum()
 }
 
-/// Returns the proportion of the total cost that each contributing party
-/// is responsible for
-pub fn individual_responsibilities(
-    intervals: &Vec<ResponsibilityInterval>,
-    billing_period: &DateInterval,
-) -> HashMap<Roommate, Rational> {
-    intervals
-        .iter()
-        .map(|i| i.roommate())
-        .unique()
-        .map(|roommate| {
-            (
-                roommate.clone(),
-                proportion_by_roommate(intervals, &billing_period, roommate),
-            )
-        })
-        .collect()
+impl RoommateGroup {
+    /// Returns the proportion of the total cost that each contributing party
+    /// is responsible for
+    pub fn individual_responsibilities(
+        &self,
+        intervals: &Vec<ResponsibilityInterval>,
+        billing_period: &DateInterval,
+    ) -> ResponsibilitySplit {
+        let map: HashMap<Roommate, Ratio<u32>> = intervals
+            .iter()
+            .map(|i| i.roommate())
+            .unique()
+            .map(|roommate| {
+                (
+                    roommate.clone(),
+                    proportion_by_roommate(intervals, &billing_period, roommate),
+                )
+            })
+            .collect();
+        self.build_split(map)
+    }
 }
 
 fn proportion_by_roommate(
     intervals: &Vec<ResponsibilityInterval>,
     billing_period: &DateInterval,
     roommate: &Roommate,
-) -> Rational {
+) -> Ratio<u32> {
     let total_cost = total_cost_in_interval(&intervals.iter().collect(), billing_period);
     if total_cost == 0 {
-        return Rational::from_integer(0);
+        return Ratio::from_integer(0);
     }
-    Rational::new(
+    Ratio::new(
         total_cost_in_interval(
             &intervals
                 .iter()
                 .filter(|i| i.roommate() == roommate)
                 .collect(),
             billing_period,
-        ) as isize,
-        total_cost as isize,
+        ),
+        total_cost,
     )
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use chrono::naive::NaiveDate;
 
@@ -87,13 +93,13 @@ mod test {
         let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
         let intervals = vec![ResponsibilityInterval::new(
-            Roommate::new(String::from("me")),
+            Roommate::new("me"),
             1,
             (start, end),
         )];
         assert_eq!(
             proportion_of_interval(&intervals, &DateInterval::new(start, end)),
-            Rational::new(1 as isize, 1 as isize)
+            Ratio::from_integer(1)
         );
     }
 
@@ -103,20 +109,19 @@ mod test {
         let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
         let intervals = vec![
             ResponsibilityInterval::new(
-                Roommate::new(String::from("me")),
+                Roommate::new("me"),
                 2,
                 (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
             ),
             ResponsibilityInterval::new(
-                Roommate::new(String::from("someone")),
+                Roommate::new("someone"),
                 4,
                 (start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
         ];
-        let correct_proportion = (4.0 * 3.0 + 2.0 * 2.0) / 10.0;
         assert_eq!(
             proportion_of_interval(&intervals, &DateInterval::new(start, end)),
-            Rational::approximate_float(correct_proportion).unwrap(),
+            Ratio::new(4 * 3 + 2 * 2, 10),
         );
     }
 
@@ -126,7 +131,7 @@ mod test {
         let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
         let intervals = vec![
             ResponsibilityInterval::new(
-                Roommate::new(String::from("me")),
+                Roommate::new("me"),
                 2,
                 (
                     NaiveDate::parse_from_str("01/18/20", "%D").unwrap(),
@@ -134,7 +139,7 @@ mod test {
                 ),
             ),
             ResponsibilityInterval::new(
-                Roommate::new(String::from("someone")),
+                Roommate::new("someone"),
                 4,
                 (
                     NaiveDate::parse_from_str("01/10/19", "%D").unwrap(),
@@ -142,37 +147,38 @@ mod test {
                 ),
             ),
         ];
-        let correct_proportion = (4.0 * 3.0 + 2.0 * 2.0) / 10.0;
         assert_eq!(
             proportion_of_interval(&intervals, &DateInterval::new(start, end)),
-            Rational::approximate_float(correct_proportion).unwrap()
+            Ratio::new(4 * 3 + 2 * 2, 10),
         );
     }
+
     #[test]
     fn partial_interval_with_weights_responsibilities() {
         let start = NaiveDate::parse_from_str("01/10/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
         let intervals = vec![
             ResponsibilityInterval::new(
-                Roommate::new(String::from("me")),
+                Roommate::new("me"),
                 2,
                 (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
             ),
             ResponsibilityInterval::new(
-                Roommate::new(String::from("someone")),
+                Roommate::new("someone"),
                 4,
                 (start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
         ];
-        let table = individual_responsibilities(&intervals, &DateInterval::new(start, end));
-        let total = (4.0 * 3.0 + 2.0 * 2.0) / 10.0;
+        let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
+        let split = group.individual_responsibilities(&intervals, &DateInterval::new(start, end));
+        let table: HashMap<_, _> = split.iter().collect();
         assert_eq!(
-            *table.get(&intervals[0].roommate()).unwrap(),
-            Rational::approximate_float((2.0 * 2.0) / 10.0 as f64 / total).unwrap()
+            **table.get(&intervals[0].roommate()).unwrap(),
+            Ratio::new(2 * 2, 4 * 3 + 2 * 2),
         );
         assert_eq!(
-            table.values().fold(Rational::from_integer(0), |a, x| a + x),
-            Rational::from_integer(1),
+            table.values().cloned().sum::<Ratio<u32>>(),
+            Ratio::from_integer(1),
         );
     }
 
@@ -181,7 +187,7 @@ mod test {
         let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
         let intervals = vec![ResponsibilityInterval::new(
-            Roommate::new(String::from("me")),
+            Roommate::new("me"),
             1,
             (
                 NaiveDate::parse_from_str("01/02/19", "%D").unwrap(),
@@ -189,15 +195,19 @@ mod test {
             ),
         )];
         let billing_period = DateInterval::new(start, end);
+        let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
         assert_eq!(
             proportion_of_interval(&intervals, &billing_period),
-            Rational::from_integer(0)
+            Ratio::from_integer(0)
         );
         assert_eq!(
-            *individual_responsibilities(&intervals, &billing_period)
+            **group
+                .individual_responsibilities(&intervals, &billing_period)
+                .iter()
+                .collect::<HashMap<_, _>>()
                 .get(&intervals[0].roommate())
                 .unwrap(),
-            Rational::from_integer(0)
+            Ratio::new(1, 2)
         );
     }
 }
