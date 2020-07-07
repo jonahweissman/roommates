@@ -3,17 +3,16 @@ use steel_cent::Money;
 
 use super::interval::DateInterval;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Bill {
     amount_due: Money,
-    shared_cost: Money,
+    shared_cost: Option<Money>,
     period: DateInterval,
     usage_notes: UsageNotes,
 }
 
 impl Bill {
-    pub fn new(amount_due: Money, shared_cost: Option<Money>, period: DateInterval) -> Self {
-        let shared_cost = shared_cost.unwrap_or(amount_due);
+    pub fn new(amount_due: Money, period: DateInterval, shared_cost: Option<Money>) -> Self {
         let usage_notes = UsageNotes {
             average_occupancy: None,
             temperature_index: None,
@@ -30,12 +29,12 @@ impl Bill {
         &self.amount_due
     }
 
-    pub fn shared_cost(&self) -> &Money {
+    pub fn shared_cost(&self) -> &Option<Money> {
         &self.shared_cost
     }
 
     pub fn set_shared_cost(&mut self, shared_cost: Money) {
-        self.shared_cost = shared_cost;
+        self.shared_cost = Some(shared_cost);
     }
 
     pub fn period(&self) -> &DateInterval {
@@ -51,7 +50,7 @@ impl Bill {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UsageNotes {
     average_occupancy: Option<Ratio<u32>>,
     temperature_index: Option<f64>,

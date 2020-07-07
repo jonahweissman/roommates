@@ -65,12 +65,12 @@ impl RoommateGroup {
             bill.amount_due().currency,
             min(
                 bill.amount_due().minor_amount(),
-                bill.shared_cost().minor_amount(),
+                bill.shared_cost().unwrap().minor_amount(),
             ),
         ) / self.len() as i64)
             + Money::of_minor(
                 bill.amount_due().currency,
-                max(0, (bill.amount_due() - bill.shared_cost()).minor_amount()),
+                max(0, (bill.amount_due() - bill.shared_cost().unwrap()).minor_amount()),
             )
             .mul_rational(*personally_responsible)
     }
@@ -100,7 +100,7 @@ mod tests {
         // we only care about the total and shared for these tests
         let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
         let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
-        Bill::new(total, Some(shared), DateInterval::new(start, end))
+        Bill::new(total, DateInterval::new(start, end), Some(shared))
     }
 
     #[test]

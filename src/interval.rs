@@ -12,9 +12,8 @@ impl ResponsibilityInterval {
     pub fn new(
         roommate: Roommate,
         responsible_for_count: u32,
-        interval: (NaiveDate, NaiveDate),
+        interval: DateInterval,
     ) -> Self {
-        let interval = DateInterval::new(interval.0, interval.1);
         ResponsibilityInterval {
             roommate,
             responsible_for_count,
@@ -49,8 +48,8 @@ impl DateInterval {
     }
 
     pub fn from_strs(start: &str, end: &str) -> Self {
-        let start = NaiveDate::parse_from_str(start, "%D").expect("Invalid start date");
-        let end = NaiveDate::parse_from_str(end, "%D").expect("Invalid end date");
+        let start = NaiveDate::parse_from_str(start, "%m/%d/%Y").expect("Invalid start date");
+        let end = NaiveDate::parse_from_str(end, "%m/%d/%Y").expect("Invalid end date");
         DateInterval::new(start, end)
     }
 

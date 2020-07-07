@@ -21,8 +21,12 @@ impl Eq for Roommate {}
 pub struct RoommateGroup(HashSet<Roommate>);
 
 impl RoommateGroup {
-    pub fn new(names: Vec<&Roommate>) -> Self {
-        RoommateGroup(names.into_iter().map(|r| r.clone()).collect())
+    pub fn new(roommates: Vec<&Roommate>) -> Self {
+        RoommateGroup(roommates.into_iter().map(|r| r.clone()).collect())
+    }
+
+    pub fn from_strs(names: Vec<&str>) -> Self {
+        RoommateGroup(names.into_iter().map(|n| Roommate::new(n)).collect())
     }
 
     pub fn len(&self) -> usize {

@@ -19,6 +19,7 @@ impl Bill {
         I: IntoIterator<Item = &'a Bill>,
     {
         let (y, ao, ti) = extract_variables(bill_history.into_iter().collect());
+        println!("{:?}", ao);
         let data: Vec<(&str, Vec<_>)> = vec![("Y", y), ("AO", ao), ("TI", ti)];
         let data = RegressionDataBuilder::new()
             .build_from(data)
@@ -29,10 +30,7 @@ impl Bill {
             .formula(formula)
             .fit()
             .expect("something went wrong with the regression fitting");
-        assert!(
-            self.assess_model(&model) <= 0.1,
-            "model poorly predicts most recent bill"
-        );
+        self.assess_model(&model);
         let intercept_value = model.parameters.intercept_value;
         let parameters: HashMap<_, _> = model.parameters.pairs().into_iter().collect();
         let shared_cost = intercept_value
@@ -40,7 +38,7 @@ impl Bill {
                 * self.usage_notes().temperature_index().unwrap_or(0.0);
         let currency = self.amount_due().currency;
         self.set_shared_cost(Money::of_minor(currency, shared_cost as i64));
-        assert!(model.rsquared >= 0.80, "shared cost model fits poorly");
+        assert!(model.rsquared >= 0.80, format!("shared cost model fits poorly ({})", &model.rsquared));
     }
 
     /// |actual - predicted| / actual
@@ -64,7 +62,16 @@ impl Bill {
         ];
         let predicted = model.predict(data).unwrap()[0];
         let actual = self.amount_due().minor_amount() as f64;
-        (predicted - actual).abs() / actual
+        let error = (predicted - actual).abs() / actual;
+        assert!(
+            error <= 0.2,
+            format!(
+                "model poorly predicts most recent bill ({}) as {}",
+                actual,
+                predicted,
+            )
+        );
+        error
     }
 }
 
@@ -100,8 +107,8 @@ mod tests {
             .map(|(m, ao)| {
                 let mut b = Bill::new(
                     Money::of_minor(USD, m),
-                    None,
                     DateInterval::from_strs("01/01/20", "02/01/20"),
+                    None,
                 );
                 b.usage_notes_mut()
                     .update_average_occupancy(Ratio::from_integer(ao));
@@ -110,8 +117,8 @@ mod tests {
             .collect::<Vec<Bill>>();
         let mut current_bill = Bill::new(
             Money::of_minor(USD, current.0),
-            None,
             DateInterval::from_strs("04/01/20", "05/01/20"),
+            None,
         );
         current_bill
             .usage_notes_mut()
@@ -152,7 +159,7 @@ mod tests {
             (50_00, 4),
         );
         current.calculate_shared_cost(bills.iter().collect::<Vec<_>>());
-        assert!((*current.shared_cost() - Money::of_minor(USD, 10_00)) <= Money::of_minor(USD, 1));
+        assert!((current.shared_cost().unwrap() - Money::of_minor(USD, 10_00)) <= Money::of_minor(USD, 1));
     }
 
     #[test]
@@ -163,6 +170,6 @@ mod tests {
             vec![4.0, 4.0, 2.0, 3.0],
         );
         current.calculate_shared_cost(bills.iter().collect::<Vec<_>>());
-        assert_eq!(*current.shared_cost(), Money::of_minor(USD, 11_00));
+        assert_eq!(current.shared_cost().unwrap(), Money::of_minor(USD, 11_00));
     }
 }

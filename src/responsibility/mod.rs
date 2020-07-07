@@ -3,8 +3,8 @@ use num::rational::Ratio;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 
-use super::roommate::{Roommate, RoommateGroup};
 use super::interval::{DateInterval, ResponsibilityInterval};
+use super::roommate::{Roommate, RoommateGroup};
 pub mod split;
 use split::ResponsibilitySplit;
 
@@ -95,7 +95,7 @@ mod tests {
         let intervals = vec![ResponsibilityInterval::new(
             Roommate::new("me"),
             1,
-            (start, end),
+            DateInterval::new(start, end),
         )];
         assert_eq!(
             proportion_of_interval(&intervals, &DateInterval::new(start, end)),
@@ -111,12 +111,12 @@ mod tests {
             ResponsibilityInterval::new(
                 Roommate::new("me"),
                 2,
-                (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
+                DateInterval::new(NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
             ),
             ResponsibilityInterval::new(
                 Roommate::new("someone"),
                 4,
-                (start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
+                DateInterval::new(start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
         ];
         assert_eq!(
@@ -133,7 +133,7 @@ mod tests {
             ResponsibilityInterval::new(
                 Roommate::new("me"),
                 2,
-                (
+                DateInterval::new(
                     NaiveDate::parse_from_str("01/18/20", "%D").unwrap(),
                     NaiveDate::parse_from_str("01/20/21", "%D").unwrap(),
                 ),
@@ -141,7 +141,7 @@ mod tests {
             ResponsibilityInterval::new(
                 Roommate::new("someone"),
                 4,
-                (
+                DateInterval::new(
                     NaiveDate::parse_from_str("01/10/19", "%D").unwrap(),
                     NaiveDate::parse_from_str("01/13/20", "%D").unwrap(),
                 ),
@@ -161,12 +161,12 @@ mod tests {
             ResponsibilityInterval::new(
                 Roommate::new("me"),
                 2,
-                (NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
+                DateInterval::new(NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
             ),
             ResponsibilityInterval::new(
                 Roommate::new("someone"),
                 4,
-                (start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
+                DateInterval::new(start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
         ];
         let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
@@ -189,7 +189,7 @@ mod tests {
         let intervals = vec![ResponsibilityInterval::new(
             Roommate::new("me"),
             1,
-            (
+            DateInterval::new(
                 NaiveDate::parse_from_str("01/02/19", "%D").unwrap(),
                 NaiveDate::parse_from_str("02/02/19", "%D").unwrap(),
             ),
