@@ -8,79 +8,65 @@ use super::roommate::{Roommate, RoommateGroup};
 pub mod split;
 use split::ResponsibilitySplit;
 
-/// average occupancy
-pub fn proportion_of_interval(
-    intervals: &Vec<ResponsibilityInterval>,
-    billing_period: &DateInterval,
-) -> Ratio<u32> {
-    let (start, end) = billing_period.interval();
-    Ratio::new(
-        total_cost_in_interval(&intervals.iter().collect(), &billing_period),
-        end.signed_duration_since(start).num_days() as u32,
-    )
-}
+impl DateInterval {
+    /// The occupancy represented by the responsibility intervals
+    /// measured in `person x days` units.
+    pub fn occupancy<'a, I>(&self, intervals: I) -> u32
+    where
+        I: Iterator<Item = &'a ResponsibilityInterval>,
+    {
+        let (start, end) = self.interval();
+        intervals
+            .map(|i| {
+                i.responsible_for_count()
+                    * max(
+                        0,
+                        min(i.end(), end)
+                            .signed_duration_since(max(i.start(), start))
+                            .num_days(),
+                    ) as u32
+            })
+            .sum()
+    }
 
-fn total_cost_in_interval(
-    intervals: &Vec<&ResponsibilityInterval>,
-    billing_period: &DateInterval,
-) -> u32 {
-    let (start, end) = billing_period.interval();
-    intervals
-        .iter()
-        .map(|i| {
-            i.responsible_for_count()
-                * max(
-                    0,
-                    min(i.end(), end)
-                        .signed_duration_since(max(i.start(), start))
-                        .num_days(),
-                ) as u32
-        })
-        .sum()
+    fn roommate_responsibility<'a, I>(&self, roommate: &Roommate, intervals: I) -> Ratio<u32>
+    where
+        I: Iterator<Item = &'a ResponsibilityInterval>,
+    {
+        let (intervals, roommate_intervals) = intervals.tee();
+        let roommate_intervals = roommate_intervals.filter(|i| i.roommate() == roommate);
+        let total_cost = self.occupancy(intervals);
+        if total_cost == 0 {
+            return Ratio::from_integer(0);
+        }
+        Ratio::new(self.occupancy(roommate_intervals), total_cost)
+    }
 }
 
 impl RoommateGroup {
     /// Returns the proportion of the total cost that each contributing party
     /// is responsible for
-    pub fn individual_responsibilities(
+    pub fn individual_responsibilities<'a, I>(
         &self,
-        intervals: &Vec<ResponsibilityInterval>,
-        billing_period: &DateInterval,
-    ) -> ResponsibilitySplit {
-        let map: HashMap<Roommate, Ratio<u32>> = intervals
+        intervals: I,
+        billing_period: DateInterval,
+    ) -> ResponsibilitySplit
+    where
+        I: IntoIterator<Item = &'a ResponsibilityInterval>,
+    {
+        let intervals = intervals.into_iter().collect::<Vec<_>>();
+        let map: HashMap<Roommate, Ratio<u32>> = self
+            .set()
             .iter()
-            .map(|i| i.roommate())
-            .unique()
             .map(|roommate| {
                 (
                     roommate.clone(),
-                    proportion_by_roommate(intervals, &billing_period, roommate),
+                    billing_period.roommate_responsibility(roommate, intervals.iter().copied()),
                 )
             })
             .collect();
         self.build_split(map)
     }
-}
-
-fn proportion_by_roommate(
-    intervals: &Vec<ResponsibilityInterval>,
-    billing_period: &DateInterval,
-    roommate: &Roommate,
-) -> Ratio<u32> {
-    let total_cost = total_cost_in_interval(&intervals.iter().collect(), billing_period);
-    if total_cost == 0 {
-        return Ratio::from_integer(0);
-    }
-    Ratio::new(
-        total_cost_in_interval(
-            &intervals
-                .iter()
-                .filter(|i| i.roommate() == roommate)
-                .collect(),
-            billing_period,
-        ),
-        total_cost,
-    )
 }
 
 #[cfg(test)]
@@ -98,8 +84,8 @@ mod tests {
             DateInterval::new(start, end),
         )];
         assert_eq!(
-            proportion_of_interval(&intervals, &DateInterval::new(start, end)),
-            Ratio::from_integer(1)
+            DateInterval::new(start, end).occupancy(intervals.iter()),
+            31,
         );
     }
 
@@ -120,8 +106,8 @@ mod tests {
             ),
         ];
         assert_eq!(
-            proportion_of_interval(&intervals, &DateInterval::new(start, end)),
-            Ratio::new(4 * 3 + 2 * 2, 10),
+            DateInterval::new(start, end).occupancy(intervals.iter()),
+            4 * 3 + 2 * 2,
         );
     }
 
@@ -148,8 +134,8 @@ mod tests {
             ),
         ];
         assert_eq!(
-            proportion_of_interval(&intervals, &DateInterval::new(start, end)),
-            Ratio::new(4 * 3 + 2 * 2, 10),
+            DateInterval::new(start, end).occupancy(intervals.iter()),
+            4 * 3 + 2 * 2,
         );
     }
 
@@ -170,7 +156,7 @@ mod tests {
             ),
         ];
         let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
-        let split = group.individual_responsibilities(&intervals, &DateInterval::new(start, end));
+        let split = group.individual_responsibilities(&intervals, DateInterval::new(start, end));
         let table: HashMap<_, _> = split.iter().collect();
         assert_eq!(
             **table.get(&intervals[0].roommate()).unwrap(),
@@ -196,10 +182,7 @@ mod tests {
         )];
         let billing_period = DateInterval::new(start, end);
         let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
-        assert_eq!(
-            proportion_of_interval(&intervals, &billing_period),
-            Ratio::from_integer(0)
-        );
+        assert_eq!(billing_period.occupancy(intervals.iter()), 0,);
         assert_eq!(
             **group
                 .individual_responsibilities(&intervals, &billing_period)

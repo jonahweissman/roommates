@@ -1,4 +1,3 @@
-use num::rational::Ratio;
 use steel_cent::Money;
 
 use super::interval::DateInterval;
@@ -6,70 +5,78 @@ use super::interval::DateInterval;
 #[derive(Debug, Clone)]
 pub struct Bill {
     amount_due: Money,
-    shared_cost: Option<Money>,
+    fixed_cost: Money,
     period: DateInterval,
-    usage_notes: UsageNotes,
 }
 
 impl Bill {
-    pub fn new(amount_due: Money, period: DateInterval, shared_cost: Option<Money>) -> Self {
-        let usage_notes = UsageNotes {
-            average_occupancy: None,
-            temperature_index: None,
+    pub fn new(amount_due: Money, period: DateInterval, fixed_cost: Option<Money>) -> Self {
+        let fixed_cost = match fixed_cost {
+            Some(fixed_cost) => {
+                verify_shared_amount(amount_due, fixed_cost).expect("invalid fixed cost");
+                fixed_cost
+            }
+            None => Money::zero(amount_due.currency),
         };
         Bill {
             amount_due,
-            shared_cost,
+            fixed_cost,
             period,
-            usage_notes,
         }
     }
 
-    pub fn amount_due(&self) -> &Money {
-        &self.amount_due
+    pub fn fixed_cost(&self) -> Money {
+        self.fixed_cost
     }
 
-    pub fn shared_cost(&self) -> &Option<Money> {
-        &self.shared_cost
+    pub fn amount_due(&self) -> Money {
+        self.amount_due
     }
 
-    pub fn set_shared_cost(&mut self, shared_cost: Money) {
-        self.shared_cost = Some(shared_cost);
-    }
-
-    pub fn period(&self) -> &DateInterval {
-        &self.period
-    }
-
-    pub fn usage_notes(&self) -> &UsageNotes {
-        &self.usage_notes
-    }
-
-    pub fn usage_notes_mut(&mut self) -> &mut UsageNotes {
-        &mut self.usage_notes
+    pub fn period(&self) -> DateInterval {
+        self.period
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct UsageNotes {
-    average_occupancy: Option<Ratio<u32>>,
-    temperature_index: Option<f64>,
+pub struct SharedBill {
+    bill: Bill,
+    shared_amount: Money,
 }
 
-impl UsageNotes {
-    pub fn average_occupancy(&self) -> &Option<Ratio<u32>> {
-        &self.average_occupancy
+impl SharedBill {
+    pub fn new(bill: Bill, shared_amount: Money) -> Self {
+        verify_shared_amount(bill.amount_due(), shared_amount).expect("invalid shared amount");
+        SharedBill {
+            bill,
+            shared_amount,
+        }
     }
 
-    pub fn update_average_occupancy(&mut self, average_occupancy: Ratio<u32>) {
-        self.average_occupancy = Some(average_occupancy);
+    pub fn shared_amount(&self) -> Money {
+        self.shared_amount
     }
 
-    pub fn temperature_index(&self) -> &Option<f64> {
-        &self.temperature_index
+    pub fn amount_due(&self) -> Money {
+        self.bill.amount_due()
     }
 
-    pub fn update_temperature_index(&mut self, temperature_index: f64) {
-        self.temperature_index = Some(temperature_index);
+    pub fn period(&self) -> DateInterval {
+        self.bill.period()
     }
+}
+
+fn verify_shared_amount(amount_due: Money, shared_amount: Money) -> Result<(), ()> {
+    assert_eq!(
+        amount_due.currency, shared_amount.currency,
+        "cannot share in a different currency than the bill"
+    );
+    assert!(
+        shared_amount <= amount_due,
+        "cannot share more than the value of the bill"
+    );
+    assert!(
+        shared_amount >= Money::zero(shared_amount.currency),
+        "cannot share a negative amount"
+    );
+    Ok(())
 }

@@ -9,11 +9,7 @@ pub struct ResponsibilityInterval {
 }
 
 impl ResponsibilityInterval {
-    pub fn new(
-        roommate: Roommate,
-        responsible_for_count: u32,
-        interval: DateInterval,
-    ) -> Self {
+    pub fn new(roommate: Roommate, responsible_for_count: u32, interval: DateInterval) -> Self {
         ResponsibilityInterval {
             roommate,
             responsible_for_count,
@@ -38,7 +34,7 @@ impl ResponsibilityInterval {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct DateInterval(NaiveDate, NaiveDate);
 
 impl DateInterval {

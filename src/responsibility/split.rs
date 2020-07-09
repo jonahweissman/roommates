@@ -21,13 +21,13 @@ impl RoommateGroup {
                     (
                         r.clone(),
                         *map.get(r)
-                            .expect(&format!("roommate not in RoommateGroup {}", r)),
+                            .unwrap_or_else(|| panic!("roommate not in RoommateGroup {}", r)),
                     )
                 })
                 .collect()
         } else if sum == Ratio::from_integer(0) {
             all_roommates
-                .map(|r| (r.clone(), Ratio::new(1u32, self.len() as u32)))
+                .map(|r| (r.clone(), Ratio::new(1u32, self.count())))
                 .collect()
         } else {
             panic!("sum must be 1 or 0")

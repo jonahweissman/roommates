@@ -4,9 +4,8 @@ use std::collections::HashMap;
 use std::fmt;
 use steel_cent::Money;
 
-use super::bill::Bill;
+use super::bill::{Bill, SharedBill};
 use super::interval::ResponsibilityInterval;
-use super::responsibility;
 use super::roommate::{Roommate, RoommateGroup};
 
 pub struct Invoice {
@@ -17,8 +16,19 @@ pub struct Invoice {
 
 struct InvoiceComponent {
     label: String,
-    bill: Bill,
+    amount_due: Money,
+    shared_amount: Money,
     responsibility_proportion: Ratio<u32>,
+}
+
+struct CostSplit {
+    split: HashMap<Roommate, Money>,
+    deficit: Money,
+}
+
+pub enum SharingData<I: IntoIterator<Item = (Bill, Option<f64>)>> {
+    Fixed(Bill),
+    Variable((Bill, Option<f64>), I),
 }
 
 impl RoommateGroup {
@@ -28,37 +38,38 @@ impl RoommateGroup {
         responsibility_intervals: Vec<ResponsibilityInterval>,
     ) -> Vec<Invoice>
     where
-        J: IntoIterator<Item = (&'a str, (Bill, Option<f64>), I)>,
+        J: IntoIterator<Item = (&'a str, SharingData<I>)>,
         I: IntoIterator<Item = (Bill, Option<f64>)>,
     {
         let mut invoice_components: HashMap<Roommate, Vec<InvoiceComponent>> = HashMap::new();
         let bill_list = bills
             .into_iter()
-            .map(|(label, (mut current_bill, current_ti), history_with_ti)| {
-                let history = history_with_ti
-                    .into_iter()
-                    .map(|(mut bill, temperature_index)| {
-                        bill.add_notes(&responsibility_intervals, temperature_index);
-                        bill
-                    })
-                    .collect::<Vec<_>>();
-                current_bill.add_notes(&responsibility_intervals, current_ti);
-                if current_bill.shared_cost().is_none() {
-                    current_bill.calculate_shared_cost(history.iter().collect::<Vec<_>>());
-                }
-                let split = self
-                    .individual_responsibilities(&responsibility_intervals, current_bill.period());
+            .map(|(label, sharing_data)| match sharing_data {
+                SharingData::Variable(current_bill, history) => estimate_shared_bills(
+                    label,
+                    current_bill,
+                    history,
+                    responsibility_intervals.iter(),
+                ),
+                SharingData::Fixed(bill) => (label, SharedBill::from_fixed(Bill::new(bill.amount_due(), bill.period(), Some(bill.amount_due())))),
+            })
+            .map(|(label, shared_bill)| {
+                let split = self.individual_responsibilities(
+                    responsibility_intervals.iter().collect::<Vec<_>>(),
+                    shared_bill.period(),
+                );
                 for (roommate, share) in split.iter() {
                     invoice_components
                         .entry(roommate.clone())
-                        .or_insert(vec![])
+                        .or_insert_with(|| vec![])
                         .push(InvoiceComponent {
                             label: String::from(label),
-                            responsibility_proportion: share.clone(),
-                            bill: current_bill.clone(),
+                            responsibility_proportion: *share,
+                            amount_due: shared_bill.amount_due(),
+                            shared_amount: shared_bill.shared_amount(),
                         })
                 }
-                (current_bill, split)
+                (shared_bill, split)
             })
             .collect::<Vec<_>>();
         self.split_bill_list(bill_list.iter().map(|(b, s)| (b, s)).collect::<Vec<_>>())
@@ -75,22 +86,36 @@ impl RoommateGroup {
     }
 }
 
-impl Bill {
-    fn add_notes(
-        &mut self,
-        responsibility_intervals: &Vec<ResponsibilityInterval>,
-        temperature_index: Option<f64>,
-    ) {
-        let billing_period = self.period().clone();
-        self.usage_notes_mut()
-            .update_average_occupancy(responsibility::proportion_of_interval(
-                responsibility_intervals,
-                &billing_period,
-            ));
-        if let Some(ti) = temperature_index {
-            self.usage_notes_mut().update_temperature_index(ti);
-        }
-    }
+fn estimate_shared_bills<'a, 'b, I, J>(
+    label: &'a str,
+    (current_bill, current_ti): (Bill, Option<f64>),
+    history_with_ti: I,
+    responsibility_intervals: J,
+) -> (&'a str, SharedBill)
+where
+    I: IntoIterator<Item = (Bill, Option<f64>)>,
+    J: Iterator<Item = &'b ResponsibilityInterval>,
+{
+    let intervals = responsibility_intervals.collect::<Vec<_>>();
+    let history = history_with_ti
+        .into_iter()
+        .map(|(bill, temperature_index)| {
+            let occupancy = bill.period().occupancy(intervals.iter().copied());
+            (bill, occupancy, temperature_index)
+        })
+        .collect::<Vec<_>>();
+    let borrowed_history = history
+        .iter()
+        .map(|(b, ao, ti)| (b, *ao, *ti))
+        .collect::<Vec<_>>();
+    let current_bill_notes = (
+        current_bill.period().occupancy(intervals.iter().copied()),
+        current_ti,
+    );
+    (
+        label,
+        SharedBill::from_estimate((current_bill, current_bill_notes), borrowed_history),
+    )
 }
 
 impl fmt::Display for Invoice {
@@ -109,9 +134,10 @@ impl fmt::Display for InvoiceComponent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "\t{} of the responsibility for the {} {} bill",
+            "\t{} of the responsibility for the {} non-shared portion of the {} {} bill",
             self.responsibility_proportion,
-            self.bill.amount_due(),
+            self.amount_due - self.shared_amount,
+            self.amount_due,
             self.label
         )
     }

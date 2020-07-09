@@ -1,3 +1,4 @@
+use chrono::naive::NaiveDate;
 use clap::{App, Arg, ArgGroup};
 use csv::StringRecord;
 use std::fs::File;
@@ -5,6 +6,7 @@ use steel_cent::formatting;
 
 use roommates::bill::Bill;
 use roommates::interval::{DateInterval, ResponsibilityInterval};
+use roommates::invoice::SharingData::{Fixed, Variable};
 use roommates::roommate::{Roommate, RoommateGroup};
 
 fn main() {
@@ -27,8 +29,9 @@ fn main() {
         )
         .group(
             ArgGroup::with_name("bills")
-                .args(&["water bill", "electric bill"])
-                .required(true),
+                .args(&["water bill", "electric bill", "internet bill"])
+                .required(true)
+                .multiple(true),
         )
         .arg(
             Arg::with_name("water bill")
@@ -42,26 +45,56 @@ fn main() {
                 .help("file listing electric bill amounts and periods")
                 .long("electric")
                 .takes_value(true)
+                .requires("weather data")
                 .value_name("ELECTRIC.CSV"),
+        )
+        .arg(
+            Arg::with_name("internet bill")
+                .help("file listing internet bill amounts and periods")
+                .long("internet")
+                .takes_value(true)
+                .value_name("INTERNET.CSV"),
         )
         .arg(
             Arg::with_name("weather data")
                 .help("NOAA data file to account for temperature variation")
                 .long("weather")
-                .requires("electric bill")
                 .takes_value(true)
                 .value_name("WEATHER.CSV"),
         )
         .get_matches();
     let intervals = build_intervals(matches.value_of("intervals").unwrap());
     let roommates = RoommateGroup::from_strs(matches.values_of("roommates").unwrap().collect());
-    let mut water_bills = build_bills(matches.value_of("water bill").unwrap())
-        .into_iter()
-        .map(|b| (b, None))
-        .collect::<Vec<_>>();
-    let current_water = water_bills.remove(water_bills.len() - 3);
-    let water_history = water_bills;
-    let invoices = roommates.generate_invoices(vec![("water", current_water, water_history)], intervals);
+    let mut bills = Vec::new();
+    let current_bill_position_from_end = 1;
+    if let Some(file_name) = matches.value_of("water bill") {
+        let mut water_bills = build_bills(file_name)
+            .into_iter()
+            .map(|b| (b, None))
+            .collect::<Vec<_>>();
+        let current_water = water_bills.remove(water_bills.len() - current_bill_position_from_end);
+        bills.push(("water", Variable(current_water, water_bills)));
+    }
+    if let Some(file_name) = matches.value_of("internet bill") {
+        let mut internet_bills = build_bills(file_name);
+        let current_internet =
+            internet_bills.remove(internet_bills.len() - current_bill_position_from_end);
+        bills.push(("internet", Fixed(current_internet)));
+    }
+    if let Some(file_name) = matches.value_of("electric bill") {
+        let weather_data = WeatherData::build(matches.value_of("weather data").unwrap());
+        let mut electric_bills = build_bills(file_name)
+            .into_iter()
+            .map(|bill| {
+                let ti = Some(weather_data.calculate_temperature_index(&bill));
+                (bill, ti)
+                })
+            .collect::<Vec<_>>();
+        let current_electric =
+            electric_bills.remove(electric_bills.len() - current_bill_position_from_end);
+        bills.push(("electric", Variable(current_electric, electric_bills)));
+    }
+    let invoices = roommates.generate_invoices(bills, intervals);
     for invoice in invoices.iter() {
         println!("{}", invoice);
     }
@@ -119,4 +152,38 @@ fn build_bills(file_name: &str) -> Vec<Bill> {
     rdr.records()
         .map(|r| Bill::from_string_record(r.expect("bad record")))
         .collect::<Vec<_>>()
+}
+
+struct WeatherData {
+    data: Vec<(NaiveDate, f64, f64)>,
+}
+impl WeatherData {
+    fn build(file_name: &str) -> Self {
+        let mut rdr = csv::ReaderBuilder::new()
+            .from_reader(File::open(file_name).expect("Could not find weather file"));
+        let data = rdr
+            .records()
+            .map(|r| r.expect("bad record"))
+            .map(|r| {
+                (
+                    NaiveDate::parse_from_str(r.get(2).unwrap(), "%Y-%m-%d").expect("bad date"),
+                    r.get(4).unwrap().parse::<f64>().unwrap(),
+                    r.get(5).unwrap().parse::<f64>().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        WeatherData { data }
+    }
+
+    fn calculate_temperature_index(&self, bill: &Bill) -> f64 {
+        let (start, end) = bill.period().interval();
+        self.data
+            .iter()
+            .filter(|(x, _, _)| x > &start && x < &end)
+            .fold(0.0, |a, (_, low, high)| a + temperature_index((*low, *high)))
+    }
+}
+
+fn temperature_index((low, high): (f64, f64)) -> f64 {
+    ((low + high) / 2.0 - 70.0).powf(2.0)
 }

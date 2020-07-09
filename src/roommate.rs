@@ -22,15 +22,15 @@ pub struct RoommateGroup(HashSet<Roommate>);
 
 impl RoommateGroup {
     pub fn new(roommates: Vec<&Roommate>) -> Self {
-        RoommateGroup(roommates.into_iter().map(|r| r.clone()).collect())
+        RoommateGroup(roommates.into_iter().cloned().collect())
     }
 
     pub fn from_strs(names: Vec<&str>) -> Self {
         RoommateGroup(names.into_iter().map(|n| Roommate::new(n)).collect())
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub fn count(&self) -> u32 {
+        self.0.len() as u32
     }
 
     pub fn set(&self) -> &HashSet<Roommate> {
