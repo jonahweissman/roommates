@@ -9,6 +9,9 @@ use roommates::interval::{DateInterval, ResponsibilityInterval};
 use roommates::invoice::SharingData::{Fixed, Variable};
 use roommates::roommate::{Roommate, RoommateGroup};
 
+// try running
+// > cargo run --example cli -- examples/responsibility_intervals.csv Rupert Georg Winifred Hestia Juan --electric examples/electric.csv --weather examples/weather.csv --water examples/water.csv --internet examples/internet.csv
+
 fn main() {
     let matches = App::new("roommates")
         .version("0.1.0")
@@ -66,7 +69,7 @@ fn main() {
     let intervals = build_intervals(matches.value_of("intervals").unwrap());
     let roommates = RoommateGroup::from_strs(matches.values_of("roommates").unwrap().collect());
     let mut bills = Vec::new();
-    let current_bill_position_from_end = 1;
+    let current_bill_position_from_end = 2;
     if let Some(file_name) = matches.value_of("water bill") {
         let mut water_bills = build_bills(file_name)
             .into_iter()
@@ -88,7 +91,7 @@ fn main() {
             .map(|bill| {
                 let ti = Some(weather_data.calculate_temperature_index(&bill));
                 (bill, ti)
-                })
+            })
             .collect::<Vec<_>>();
         let current_electric =
             electric_bills.remove(electric_bills.len() - current_bill_position_from_end);
@@ -180,7 +183,9 @@ impl WeatherData {
         self.data
             .iter()
             .filter(|(x, _, _)| x > &start && x < &end)
-            .fold(0.0, |a, (_, low, high)| a + temperature_index((*low, *high)))
+            .fold(0.0, |a, (_, low, high)| {
+                a + temperature_index((*low, *high))
+            })
     }
 }
 

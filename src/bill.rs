@@ -1,3 +1,4 @@
+use std::error::Error;
 use steel_cent::Money;
 
 use super::interval::DateInterval;
@@ -65,7 +66,7 @@ impl SharedBill {
     }
 }
 
-fn verify_shared_amount(amount_due: Money, shared_amount: Money) -> Result<(), ()> {
+fn verify_shared_amount(amount_due: Money, shared_amount: Money) -> Result<(), Box<dyn Error>> {
     assert_eq!(
         amount_due.currency, shared_amount.currency,
         "cannot share in a different currency than the bill"

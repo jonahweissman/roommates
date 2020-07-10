@@ -1,12 +1,37 @@
+use itertools::Itertools;
 use num::rational::Ratio;
 use std::collections::HashMap;
 use steel_cent::Money;
 
 use super::bill::SharedBill;
-use super::responsibility::split::ResponsibilitySplit;
+use super::interval::{DateInterval, ResponsibilityInterval};
 use super::roommate::{Roommate, RoommateGroup};
 
 impl RoommateGroup {
+    /// Returns the proportion of the total cost that each contributing party
+    /// is responsible for
+    pub fn individual_responsibilities<'a, I>(
+        &self,
+        responsibility_intervals: I,
+        billing_period: DateInterval,
+    ) -> ResponsibilitySplit
+    where
+        I: IntoIterator<Item = &'a ResponsibilityInterval>,
+    {
+        let intervals: Vec<_> = responsibility_intervals.into_iter().collect();
+        let map: HashMap<Roommate, Ratio<u32>> = self
+            .set()
+            .iter()
+            .map(|roommate| {
+                (
+                    roommate.clone(),
+                    billing_period.roommate_responsibility(roommate, intervals.iter().cloned()),
+                )
+            })
+            .collect();
+        self.build_split(map)
+    }
+
     /// Takes a vector (or other collection that can be turned into an iter)
     /// of [`Bill`]s with corresponding maps for each each Bill of
     /// how much each roommate is personally responsible for and then outputs
@@ -54,8 +79,9 @@ impl RoommateGroup {
         usage_proportion: &ResponsibilitySplit,
     ) -> HashMap<Roommate, Money> {
         usage_proportion
-            .iter()
-            .map(|(roommate, share)| (roommate.clone(), self.divide(bill, *share)))
+            .hash_map()
+            .into_iter()
+            .map(|(roommate, share)| (roommate.clone(), self.divide(bill, share)))
             .collect()
     }
 
@@ -69,6 +95,52 @@ impl RoommateGroup {
                 (bill.amount_due() - bill.shared_amount()).minor_amount(),
             )
             .mul_rational(personally_responsible)
+    }
+
+    fn build_split(&self, map: HashMap<Roommate, Ratio<u32>>) -> ResponsibilitySplit {
+        let sum = map.values().sum::<Ratio<u32>>();
+        let all_roommates = self.set().iter();
+        let map: HashMap<_, _> = if sum == Ratio::from_integer(1) {
+            all_roommates
+                .map(|r| {
+                    (
+                        r.clone(),
+                        *map.get(r)
+                            .unwrap_or_else(|| panic!("roommate not in RoommateGroup {}", r)),
+                    )
+                })
+                .collect()
+        } else if sum == Ratio::from_integer(0) {
+            all_roommates
+                .map(|r| (r.clone(), Ratio::new(1u32, self.count())))
+                .collect()
+        } else {
+            panic!("sum must be 1 or 0")
+        };
+        ResponsibilitySplit(map)
+    }
+}
+
+impl DateInterval {
+    fn roommate_responsibility<'a, I>(&self, roommate: &Roommate, intervals: I) -> Ratio<u32>
+    where
+        I: IntoIterator<Item = &'a ResponsibilityInterval>,
+    {
+        let (intervals, roommate_intervals) = intervals.into_iter().tee();
+        let roommate_intervals = roommate_intervals.filter(|i| i.roommate() == roommate);
+        let total_cost = self.occupancy(intervals);
+        if total_cost == 0 {
+            return Ratio::from_integer(0);
+        }
+        Ratio::new(self.occupancy(roommate_intervals), total_cost)
+    }
+}
+
+pub struct ResponsibilitySplit(HashMap<Roommate, Ratio<u32>>);
+
+impl ResponsibilitySplit {
+    pub fn hash_map(&self) -> HashMap<&Roommate, Ratio<u32>> {
+        self.0.iter().map(|(r, s)| (r, *s)).collect()
     }
 }
 
@@ -84,14 +156,108 @@ impl MulRatio<u32> for Money {
             .expect("overflow")
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bill::Bill;
     use crate::interval::DateInterval;
     use chrono::naive::NaiveDate;
+    use std::collections::HashSet;
+    use std::iter;
     use steel_cent::currency::USD;
+
+    fn build_rs(rg: RoommateGroup, pairs: Vec<(&str, u32, u32)>) -> ResponsibilitySplit {
+        rg.build_split(
+            pairs
+                .into_iter()
+                .map(|(name, n, d)| (Roommate::new(name), Ratio::new(n, d)))
+                .collect(),
+        )
+    }
+
+    #[test]
+    #[should_panic]
+    fn sum_over_one() {
+        let roomies = vec!["a", "b", "c"]
+            .into_iter()
+            .map(|n| Roommate::new(n))
+            .collect::<Vec<_>>();
+        let rg = RoommateGroup::new(roomies.iter().collect::<Vec<_>>());
+        let _rs = build_rs(rg, vec![("a", 2, 3), ("b", 1, 3), ("c", 1, 3)]);
+    }
+
+    #[test]
+    fn empty_list() {
+        let roomies = vec!["a", "b", "c"]
+            .into_iter()
+            .map(|n| Roommate::new(n))
+            .collect::<Vec<_>>();
+        let rg = RoommateGroup::new(roomies.iter().collect::<Vec<_>>());
+        let rs = build_rs(rg, vec![]);
+        assert_eq!(
+            rs.hash_map().into_iter().collect::<HashSet<_>>(),
+            roomies
+                .iter()
+                .zip(iter::repeat(Ratio::new(1, 3)).take(3))
+                .collect::<HashSet<_>>(),
+        );
+    }
+
+    #[test]
+    fn partial_interval_with_weights_responsibilities() {
+        let start = NaiveDate::parse_from_str("01/10/20", "%D").unwrap();
+        let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
+        let intervals = vec![
+            ResponsibilityInterval::new(
+                Roommate::new("me"),
+                2,
+                DateInterval::new(NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
+            ),
+            ResponsibilityInterval::new(
+                Roommate::new("someone"),
+                4,
+                DateInterval::new(start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
+            ),
+        ];
+        let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
+        let split = group.individual_responsibilities(&intervals, DateInterval::new(start, end));
+        let table: HashMap<_, _> = split.hash_map();
+        assert_eq!(
+            *table.get(&intervals[0].roommate()).unwrap(),
+            Ratio::new(2 * 2, 4 * 3 + 2 * 2),
+        );
+        assert_eq!(
+            table.values().cloned().sum::<Ratio<u32>>(),
+            Ratio::from_integer(1),
+        );
+    }
+
+    #[test]
+    fn no_overlap_between_billing_period_and_intervals() {
+        let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
+        let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
+        let intervals = vec![ResponsibilityInterval::new(
+            Roommate::new("me"),
+            1,
+            DateInterval::new(
+                NaiveDate::parse_from_str("01/02/19", "%D").unwrap(),
+                NaiveDate::parse_from_str("02/02/19", "%D").unwrap(),
+            ),
+        )];
+        let billing_period = DateInterval::new(start, end);
+        let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
+        assert_eq!(billing_period.occupancy(intervals.iter()), 0,);
+        assert_eq!(
+            **group
+                .individual_responsibilities(&intervals, billing_period)
+                .hash_map()
+                .iter()
+                .collect::<HashMap<_, _>>()
+                .get(&intervals[0].roommate())
+                .unwrap(),
+            Ratio::new(1, 2)
+        );
+    }
 
     fn new_bill(total: Money, shared: Money) -> SharedBill {
         let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
@@ -219,6 +385,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn rounding_issue_everyone_pays_the_same() {
         let r = vec!["a", "b", "c"]
             .into_iter()

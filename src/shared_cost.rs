@@ -1,5 +1,6 @@
 use linregress::{FormulaRegressionBuilder, RegressionDataBuilder, RegressionModel};
 use std::collections::HashMap;
+use std::error::Error;
 use steel_cent::Money;
 
 use super::bill::{Bill, SharedBill};
@@ -16,28 +17,24 @@ impl SharedBill {
     pub fn from_estimate<'a, I>(
         bill_with_notes: (Bill, (u32, Option<f64>)),
         bill_history: I,
-    ) -> Self
+    ) -> Result<Self, Box<dyn Error>>
     where
         I: IntoIterator<Item = (&'a Bill, u32, Option<f64>)>,
     {
         let (y, oc, ti) = extract_variables(bill_history);
         let data: Vec<(&str, Vec<_>)> = vec![("Y", y), ("Oc", oc), ("TI", ti)];
-        let data = RegressionDataBuilder::new()
-            .build_from(data)
-            .expect("Error while building regression data");
+        let data = RegressionDataBuilder::new().build_from(data)?;
         let formula = "Y ~ Oc + TI";
         let model = FormulaRegressionBuilder::new()
             .data(&data)
             .formula(formula)
-            .fit()
-            .expect("something went wrong with the regression fitting");
+            .fit()?;
         let (bill, notes) = bill_with_notes;
         bill.assess_model(&model, notes);
         assert!(
             model.rsquared >= 0.80,
             format!("shared cost model fits poorly ({})", &model.rsquared)
         );
-        println!("rsquared: {}", &model.rsquared);
         let intercept_value = model.parameters.intercept_value;
         let parameters: HashMap<_, _> = model.parameters.pairs().into_iter().collect();
         let shared_cost = 0.0f64.max((bill.amount_due().minor_amount() as f64).min(
@@ -46,15 +43,13 @@ impl SharedBill {
                 + bill.fixed_cost().minor_amount() as f64,
         ));
         let currency = bill.amount_due().currency;
-        SharedBill::new(bill, Money::of_minor(currency, shared_cost as i64))
+        Ok(SharedBill::new(
+            bill,
+            Money::of_minor(currency, shared_cost as i64),
+        ))
     }
 
     pub fn from_fixed(bill: Bill) -> Self {
-        debug_assert_eq!(
-            bill.fixed_cost(),
-            bill.amount_due(),
-            "use SharedBill::from_estimate if not all the bill is fixed"
-        );
         let shared_amount = bill.fixed_cost();
         SharedBill::new(bill, shared_amount)
     }
@@ -177,7 +172,8 @@ mod tests {
                 .iter()
                 .map(|(b, oc, ti)| (b, *oc, *ti))
                 .collect::<Vec<_>>(),
-        );
+        )
+        .unwrap();
         assert!((current.shared_amount() - Money::of_minor(USD, 10_00)) <= Money::of_minor(USD, 1));
     }
 
@@ -194,7 +190,8 @@ mod tests {
                 .iter()
                 .map(|(b, oc, ti)| (b, *oc, *ti))
                 .collect::<Vec<_>>(),
-        );
+        )
+        .unwrap();
         assert_eq!(current.shared_amount(), Money::of_minor(USD, 11_00));
     }
 
@@ -250,7 +247,8 @@ mod tests {
                 .iter()
                 .map(|(b, oc, ti)| (b, *oc, *ti))
                 .collect::<Vec<_>>(),
-        );
+        )
+        .unwrap();
         assert!((current.shared_amount() - Money::of_minor(USD, 20_00)) <= Money::of_minor(USD, 1));
     }
 }
