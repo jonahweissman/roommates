@@ -1,7 +1,43 @@
 use chrono::naive::NaiveDate;
 use std::cmp::{max, min};
+use std::iter::FromIterator;
+use std::slice::Iter;
 
 use super::roommate::Roommate;
+
+pub struct ResponsibilityRecord {
+    intervals: Vec<ResponsibilityInterval>,
+}
+
+impl ResponsibilityRecord {
+    pub fn iter(&self) -> Iter<ResponsibilityInterval> {
+        self.intervals.iter()
+    }
+
+    /// The occupancy represented by the responsibility intervals
+    /// measured in `person x days` units.
+    pub fn occupancy(&self, billing_period: DateInterval) -> u32 {
+        let (start, end) = billing_period.interval();
+        self.iter()
+            .map(|i| {
+                i.responsible_for_count()
+                    * max(
+                        0,
+                        min(i.end(), end)
+                            .signed_duration_since(max(i.start(), start))
+                            .num_days(),
+                    ) as u32
+            })
+            .sum()
+    }
+}
+
+impl FromIterator<ResponsibilityInterval> for ResponsibilityRecord {
+    fn from_iter<I: IntoIterator<Item = ResponsibilityInterval>>(iter: I) -> Self {
+        let intervals = iter.into_iter().collect::<Vec<_>>();
+        ResponsibilityRecord { intervals }
+    }
+}
 
 #[derive(Clone)]
 pub struct ResponsibilityInterval {
@@ -54,27 +90,6 @@ impl DateInterval {
     pub fn interval(&self) -> (NaiveDate, NaiveDate) {
         (self.0, self.1)
     }
-
-    /// The occupancy represented by the responsibility intervals
-    /// measured in `person x days` units.
-    pub fn occupancy<'a, I>(&self, intervals: I) -> u32
-    where
-        I: IntoIterator<Item = &'a ResponsibilityInterval>,
-    {
-        let (start, end) = self.interval();
-        intervals
-            .into_iter()
-            .map(|i| {
-                i.responsible_for_count()
-                    * max(
-                        0,
-                        min(i.end(), end)
-                            .signed_duration_since(max(i.start(), start))
-                            .num_days(),
-                    ) as u32
-            })
-            .sum()
-    }
 }
 
 #[cfg(test)]
@@ -90,11 +105,10 @@ mod tests {
             Roommate::new("me"),
             1,
             DateInterval::new(start, end),
-        )];
-        assert_eq!(
-            DateInterval::new(start, end).occupancy(intervals.iter()),
-            31,
-        );
+        )]
+        .into_iter()
+        .collect::<ResponsibilityRecord>();
+        assert_eq!(intervals.occupancy(DateInterval::new(start, end)), 31,);
     }
 
     #[test]
@@ -112,9 +126,11 @@ mod tests {
                 4,
                 DateInterval::new(start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
             ),
-        ];
+        ]
+        .into_iter()
+        .collect::<ResponsibilityRecord>();
         assert_eq!(
-            DateInterval::new(start, end).occupancy(intervals.iter()),
+            intervals.occupancy(DateInterval::new(start, end)),
             4 * 3 + 2 * 2,
         );
     }
@@ -140,9 +156,11 @@ mod tests {
                     NaiveDate::parse_from_str("01/13/20", "%D").unwrap(),
                 ),
             ),
-        ];
+        ]
+        .into_iter()
+        .collect::<ResponsibilityRecord>();
         assert_eq!(
-            DateInterval::new(start, end).occupancy(intervals.iter()),
+            intervals.occupancy(DateInterval::new(start, end)),
             4 * 3 + 2 * 2,
         );
     }

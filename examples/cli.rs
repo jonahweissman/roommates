@@ -4,10 +4,10 @@ use csv::StringRecord;
 use std::fs::File;
 use steel_cent::formatting;
 
-use roommates::bill::Bill;
-use roommates::interval::{DateInterval, ResponsibilityInterval};
-use roommates::invoice::SharingData::{Fixed, Variable};
-use roommates::roommate::{Roommate, RoommateGroup};
+use roommates::sharing::SharingData::{Fixed, Variable};
+use roommates::sharing::{DateInterval, ResponsibilityInterval, ResponsibilityRecord};
+use roommates::Bill;
+use roommates::{Roommate, RoommateGroup};
 
 // try running
 // > cargo run --example cli -- examples/responsibility_intervals.csv Rupert Georg Winifred Hestia Juan --electric examples/electric.csv --weather examples/weather.csv --water examples/water.csv --internet examples/internet.csv
@@ -97,7 +97,7 @@ fn main() {
             electric_bills.remove(electric_bills.len() - current_bill_position_from_end);
         bills.push(("electric", Variable(current_electric, electric_bills)));
     }
-    let invoices = roommates.generate_invoices(bills, intervals);
+    let invoices = roommates.generate_invoices(bills, &intervals);
     for invoice in invoices.iter() {
         println!("{}", invoice);
     }
@@ -139,13 +139,13 @@ impl FromStringRecord for Bill {
     }
 }
 
-fn build_intervals(file_name: &str) -> Vec<ResponsibilityInterval> {
+fn build_intervals(file_name: &str) -> ResponsibilityRecord {
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .from_reader(File::open(file_name).expect("Could not find intervals file"));
     rdr.records()
         .map(|r| ResponsibilityInterval::from_string_record(r.expect("bad record")))
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 fn build_bills(file_name: &str) -> Vec<Bill> {
