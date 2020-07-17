@@ -114,7 +114,7 @@ impl RoommateGroup {
     }
 }
 
-impl ResponsibilityRecord {
+impl ResponsibilityRecord<'_> {
     fn roommate_responsibility(
         &self,
         roommate: &Roommate,
@@ -125,11 +125,14 @@ impl ResponsibilityRecord {
             .filter(|i| i.roommate() == roommate)
             .cloned()
             .collect::<ResponsibilityRecord>();
-        let total_cost = self.occupancy(billing_period);
+        let total_cost = self.occupancy_over(billing_period);
         if total_cost == 0 {
             return Ratio::from_integer(0);
         }
-        Ratio::new(roommate_intervals.occupancy(billing_period), total_cost)
+        Ratio::new(
+            roommate_intervals.occupancy_over(billing_period),
+            total_cost,
+        )
     }
 }
 
@@ -159,7 +162,6 @@ mod tests {
     use super::*;
     use crate::bill::Bill;
     use crate::interval::{DateInterval, ResponsibilityInterval};
-    use chrono::naive::NaiveDate;
     use std::collections::HashSet;
     use std::iter;
     use steel_cent::currency::USD;
@@ -203,27 +205,26 @@ mod tests {
 
     #[test]
     fn partial_interval_with_weights_responsibilities() {
-        let start = NaiveDate::parse_from_str("01/10/20", "%D").unwrap();
-        let end = NaiveDate::parse_from_str("01/20/20", "%D").unwrap();
+        let start = (2020, 1, 10);
+        let end = (2020, 1, 20);
+        let me = Roommate::new("me");
+        let someone = Roommate::new("someone");
         let intervals = vec![
+            ResponsibilityInterval::new(&me, DateInterval::new((2020, 1, 18), end).unwrap(), 1),
             ResponsibilityInterval::new(
-                Roommate::new("me"),
-                2,
-                DateInterval::new(NaiveDate::parse_from_str("01/18/20", "%D").unwrap(), end),
-            ),
-            ResponsibilityInterval::new(
-                Roommate::new("someone"),
-                4,
-                DateInterval::new(start, NaiveDate::parse_from_str("01/13/20", "%D").unwrap()),
+                &someone,
+                DateInterval::new(start, (2020, 1, 13)).unwrap(),
+                3,
             ),
         ];
         let record = intervals.iter().cloned().collect::<ResponsibilityRecord>();
         let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
-        let split = group.individual_responsibilities(&record, DateInterval::new(start, end));
+        let split =
+            group.individual_responsibilities(&record, DateInterval::new(start, end).unwrap());
         let table: HashMap<_, _> = split.hash_map();
         assert_eq!(
             *table.get(&intervals[0].roommate()).unwrap(),
-            Ratio::new(2 * 2, 4 * 3 + 2 * 2),
+            Ratio::new(2 * 3, 4 * 4 + 2 * 3),
         );
         assert_eq!(
             table.values().cloned().sum::<Ratio<u32>>(),
@@ -233,20 +234,18 @@ mod tests {
 
     #[test]
     fn no_overlap_between_billing_period_and_intervals() {
-        let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
-        let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
+        let start = (2020, 1, 2);
+        let end = (2020, 2, 2);
+        let me = Roommate::new("me");
         let intervals = vec![ResponsibilityInterval::new(
-            Roommate::new("me"),
-            1,
-            DateInterval::new(
-                NaiveDate::parse_from_str("01/02/19", "%D").unwrap(),
-                NaiveDate::parse_from_str("02/02/19", "%D").unwrap(),
-            ),
+            &me,
+            DateInterval::new((2019, 1, 2), (2019, 2, 2)).unwrap(),
+            0,
         )];
         let record = intervals.iter().cloned().collect::<ResponsibilityRecord>();
-        let billing_period = DateInterval::new(start, end);
+        let billing_period = DateInterval::new(start, end).unwrap();
         let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
-        assert_eq!(record.occupancy(billing_period), 0);
+        assert_eq!(record.occupancy_over(billing_period), 0);
         assert_eq!(
             **group
                 .individual_responsibilities(&record, billing_period)
@@ -260,10 +259,12 @@ mod tests {
     }
 
     fn new_bill(total: Money, shared: Money) -> SharedBill {
-        let start = NaiveDate::parse_from_str("01/02/20", "%D").unwrap();
-        let end = NaiveDate::parse_from_str("02/02/20", "%D").unwrap();
         SharedBill::new(
-            Bill::new(total, DateInterval::new(start, end), None),
+            Bill::new(
+                total,
+                DateInterval::new((2020, 1, 2), (2020, 2, 2)).unwrap(),
+                None,
+            ),
             shared,
         )
     }
@@ -391,7 +392,7 @@ mod tests {
             .into_iter()
             .map(|n| Roommate::new(n))
             .collect::<Vec<_>>();
-        let roomies = RoommateGroup::new(r.iter().collect());
+        let roomies = RoommateGroup::new(r.iter());
         let usage_proportions = vec![0, 0, 0]
             .into_iter()
             .map(|p| Ratio::from_integer(p))

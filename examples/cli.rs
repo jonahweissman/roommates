@@ -4,10 +4,10 @@ use csv::StringRecord;
 use std::fs::File;
 use steel_cent::formatting;
 
+use roommates::sharing::Bill;
 use roommates::sharing::SharingData::{Fixed, Variable};
-use roommates::sharing::{DateInterval, ResponsibilityInterval, ResponsibilityRecord};
-use roommates::Bill;
-use roommates::{Roommate, RoommateGroup};
+use roommates::RoommateGroup;
+use roommates::{DateInterval, ResponsibilityInterval, ResponsibilityRecord};
 
 // try running
 // > cargo run --example cli -- examples/responsibility_intervals.csv Rupert Georg Winifred Hestia Juan --electric examples/electric.csv --weather examples/weather.csv --water examples/water.csv --internet examples/internet.csv
@@ -66,8 +66,8 @@ fn main() {
                 .value_name("WEATHER.CSV"),
         )
         .get_matches();
-    let intervals = build_intervals(matches.value_of("intervals").unwrap());
     let roommates = RoommateGroup::from_strs(matches.values_of("roommates").unwrap().collect());
+    let intervals = build_intervals(matches.value_of("intervals").unwrap(), &roommates);
     let mut bills = Vec::new();
     let current_bill_position_from_end = 2;
     if let Some(file_name) = matches.value_of("water bill") {
@@ -107,23 +107,6 @@ trait FromStringRecord {
     fn from_string_record(sr: StringRecord) -> Self;
 }
 
-impl FromStringRecord for ResponsibilityInterval {
-    fn from_string_record(sr: StringRecord) -> Self {
-        assert_eq!(sr.len(), 4, "Found row with wrong number of columns");
-        let period = DateInterval::from_strs(
-            sr.get(2).expect("Missing start date"),
-            sr.get(3).expect("Missing end date"),
-        );
-        let roommate = Roommate::new(sr.get(0).expect("Missing person"));
-        let count = sr
-            .get(1)
-            .expect("Missing count")
-            .parse::<u32>()
-            .expect("Invalid count");
-        ResponsibilityInterval::new(roommate, count, period)
-    }
-}
-
 impl FromStringRecord for Bill {
     fn from_string_record(sr: StringRecord) -> Self {
         assert_eq!(sr.len(), 3, "Found row with wrong number of columns");
@@ -134,18 +117,46 @@ impl FromStringRecord for Bill {
         let period = DateInterval::from_strs(
             sr.get(1).expect("Missing start date"),
             sr.get(2).expect("Missing end date"),
-        );
+        )
+        .expect("invalid interval");
         Bill::new(amount_due, period, None)
     }
 }
 
-fn build_intervals(file_name: &str) -> ResponsibilityRecord {
+fn build_intervals<'a, 'b>(
+    file_name: &'a str,
+    roommate_group: &'b RoommateGroup,
+) -> ResponsibilityRecord<'b> {
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .from_reader(File::open(file_name).expect("Could not find intervals file"));
-    rdr.records()
-        .map(|r| ResponsibilityInterval::from_string_record(r.expect("bad record")))
-        .collect()
+    let mut intervals = vec![];
+    for sr in rdr.records() {
+        let sr = sr.expect("bad record");
+        assert_eq!(sr.len(), 4, "Found row with wrong number of columns");
+        let period = DateInterval::from_strs(
+            sr.get(2).expect("Missing start date"),
+            sr.get(3).expect("Missing end date"),
+        )
+        .expect("invalid interval");
+        let roommate_name = sr.get(0).expect("Missing person");
+        let roommate = if let Some(roommate) = roommate_group.borrow_by_name(roommate_name) {
+            roommate
+        } else {
+            println!(
+                "skipping responsibility interval with unknown roommate: {}",
+                roommate_name
+            );
+            continue;
+        };
+        let guests = sr
+            .get(1)
+            .expect("Missing guest count")
+            .parse::<u32>()
+            .expect("Invalid guess count");
+        intervals.push(ResponsibilityInterval::new(roommate, period, guests));
+    }
+    intervals.into_iter().collect()
 }
 
 fn build_bills(file_name: &str) -> Vec<Bill> {
@@ -179,7 +190,7 @@ impl WeatherData {
     }
 
     fn calculate_temperature_index(&self, bill: &Bill) -> f64 {
-        let (start, end) = bill.period().interval();
+        let (start, end) = (bill.period().start(), bill.period().end());
         self.data
             .iter()
             .filter(|(x, _, _)| x > &start && x < &end)

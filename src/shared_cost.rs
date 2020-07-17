@@ -111,7 +111,7 @@ mod tests {
                 (
                     Bill::new(
                         Money::of_minor(USD, m),
-                        DateInterval::from_strs("01/01/20", "02/01/20"),
+                        DateInterval::from_strs("01/01/2020", "02/01/2020").unwrap(),
                         None,
                     ),
                     oc,
@@ -121,7 +121,7 @@ mod tests {
             .collect::<Vec<_>>();
         let current_bill = Bill::new(
             Money::of_minor(USD, current.0),
-            DateInterval::from_strs("04/01/20", "05/01/20"),
+            DateInterval::from_strs("04/01/2020", "05/01/2020").unwrap(),
             None,
         );
         let notes = (current.1, None);
@@ -201,7 +201,7 @@ mod tests {
             (
                 Bill::new(
                     Money::of_minor(USD, 110_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
                     Some(Money::of_minor(USD, 100_00)),
                 ),
                 0,
@@ -210,7 +210,7 @@ mod tests {
             (
                 Bill::new(
                     Money::of_minor(USD, 120_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
                     Some(Money::of_minor(USD, 100_00)),
                 ),
                 1,
@@ -219,7 +219,7 @@ mod tests {
             (
                 Bill::new(
                     Money::of_minor(USD, 30_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
                     None,
                 ),
                 2,
@@ -228,7 +228,7 @@ mod tests {
             (
                 Bill::new(
                     Money::of_minor(USD, 40_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
                     None,
                 ),
                 3,
@@ -237,7 +237,7 @@ mod tests {
         ];
         let bill = Bill::new(
             Money::of_minor(USD, 50_00),
-            DateInterval::from_strs("01/01/01", "02/02/02"),
+            DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
             Some(Money::of_minor(USD, 10_00)),
         );
         let notes = (4, None);

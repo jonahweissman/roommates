@@ -97,12 +97,12 @@ where
     let history = history_with_ti
         .into_iter()
         .map(|(bill, temperature_index)| {
-            let occupancy = intervals.occupancy(bill.period());
+            let occupancy = intervals.occupancy_over(bill.period());
             (bill, occupancy, temperature_index)
         })
         .collect::<Vec<_>>();
     let borrowed_history = history.iter().map(|(b, ao, ti)| (b, *ao, *ti));
-    let current_bill_notes = (intervals.occupancy(current_bill.period()), current_ti);
+    let current_bill_notes = (intervals.occupancy_over(current_bill.period()), current_ti);
     Ok((
         label,
         SharedBill::from_estimate((current_bill, current_bill_notes), borrowed_history)?,

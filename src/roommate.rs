@@ -21,7 +21,10 @@ impl Eq for Roommate {}
 pub struct RoommateGroup(HashSet<Roommate>);
 
 impl RoommateGroup {
-    pub fn new(roommates: Vec<&Roommate>) -> Self {
+    pub fn new<'a, I>(roommates: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Roommate>,
+    {
         RoommateGroup(roommates.into_iter().cloned().collect())
     }
 
@@ -35,5 +38,9 @@ impl RoommateGroup {
 
     pub fn set(&self) -> &HashSet<Roommate> {
         &self.0
+    }
+
+    pub fn borrow_by_name(&self, name: &str) -> Option<&Roommate> {
+        self.0.iter().find(|r| &r.0[..] == name)
     }
 }
