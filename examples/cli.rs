@@ -69,7 +69,7 @@ fn main() {
     let intervals = build_intervals(matches.value_of("intervals").unwrap());
     let roommates = RoommateGroup::from_strs(matches.values_of("roommates").unwrap().collect());
     let mut bills = Vec::new();
-    let current_bill_position_from_end = 2;
+    let current_bill_position_from_end = 1;
     if let Some(file_name) = matches.value_of("water bill") {
         let mut water_bills = build_bills(file_name)
             .into_iter()
@@ -170,8 +170,8 @@ impl WeatherData {
             .map(|r| {
                 (
                     NaiveDate::parse_from_str(r.get(2).unwrap(), "%Y-%m-%d").expect("bad date"),
+                    r.get(3).unwrap().parse::<f64>().unwrap(),
                     r.get(4).unwrap().parse::<f64>().unwrap(),
-                    r.get(5).unwrap().parse::<f64>().unwrap(),
                 )
             })
             .collect::<Vec<_>>();
