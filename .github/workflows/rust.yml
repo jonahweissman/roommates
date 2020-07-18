@@ -20,3 +20,9 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Docs
+      if: ${{ github.event_name != 'pull_request' }}
+      run: |
+        cargo doc
+        sudo pip install ghp-import
+        ghp-import -snfp target/doc
