@@ -25,4 +25,5 @@ jobs:
       run: |
         cargo doc
         sudo pip install ghp-import
-        # ghp-import -snfp target/doc
+        ghp-import -n target/doc
+        git push origin gh-pages
