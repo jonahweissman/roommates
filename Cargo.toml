@@ -3,6 +3,8 @@ name = "roommates"
 version = "0.1.0"
 authors = ["Jonah Weissman <jonahrweissman@gmail.com>"]
 edition = "2018"
+description = "A library for splitting costs between roommates"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 chrono = "0.4.11"

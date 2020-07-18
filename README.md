@@ -17,3 +17,8 @@ entire cost, this library:
 Check the [examples](/examples) folder for a simple command line interface.
 
 Does not currently handle rounding errors, but will soon.
+
+### License
+
+This project is licensed under either the MIT License or the Apache-2.0 License,
+at your option.
