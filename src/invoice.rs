@@ -6,7 +6,7 @@ use std::fmt;
 use steel_cent::Money;
 
 use super::bill::{Bill, SharedBill};
-use super::interval::ResponsibilityInterval;
+use super::interval::ResponsibilityRecord;
 use super::roommate::{Roommate, RoommateGroup};
 
 pub struct Invoice {
@@ -31,7 +31,7 @@ impl RoommateGroup {
     pub fn generate_invoices<'a, I, J>(
         &self,
         bills: J,
-        responsibility_intervals: Vec<ResponsibilityInterval>,
+        responsibility_intervals: &ResponsibilityRecord,
     ) -> Vec<Invoice>
     where
         J: IntoIterator<Item = (&'a str, SharingData<I>)>,
@@ -41,13 +41,10 @@ impl RoommateGroup {
         let bill_list = bills
             .into_iter()
             .map(|(label, sharing_data)| match sharing_data {
-                SharingData::Variable(current_bill, history) => estimate_shared_bills(
-                    label,
-                    current_bill,
-                    history,
-                    responsibility_intervals.iter(),
-                )
-                .expect("estimating failed"),
+                SharingData::Variable(current_bill, history) => {
+                    estimate_shared_bills(label, current_bill, history, responsibility_intervals)
+                        .expect("estimating failed")
+                }
                 SharingData::Fixed(bill) => (
                     label,
                     SharedBill::from_fixed(Bill::new(
@@ -58,10 +55,8 @@ impl RoommateGroup {
                 ),
             })
             .map(|(label, shared_bill)| {
-                let split = self.individual_responsibilities(
-                    responsibility_intervals.iter(),
-                    shared_bill.period(),
-                );
+                let split = self
+                    .individual_responsibilities(responsibility_intervals, shared_bill.period());
                 for (roommate, share) in split.hash_map().into_iter() {
                     invoice_components
                         .entry(roommate.clone())
@@ -90,30 +85,24 @@ impl RoommateGroup {
     }
 }
 
-fn estimate_shared_bills<'a, 'b, I, J>(
+fn estimate_shared_bills<'a, I>(
     label: &'a str,
     (current_bill, current_ti): (Bill, Option<f64>),
     history_with_ti: I,
-    intervals: J,
+    intervals: &ResponsibilityRecord,
 ) -> Result<(&'a str, SharedBill), Box<dyn Error>>
 where
     I: IntoIterator<Item = (Bill, Option<f64>)>,
-    J: IntoIterator<Item = &'b ResponsibilityInterval> + Clone,
 {
     let history = history_with_ti
         .into_iter()
         .map(|(bill, temperature_index)| {
-            let occupancy = bill.period().occupancy(intervals.clone().into_iter());
+            let occupancy = intervals.occupancy(bill.period());
             (bill, occupancy, temperature_index)
         })
         .collect::<Vec<_>>();
     let borrowed_history = history.iter().map(|(b, ao, ti)| (b, *ao, *ti));
-    let current_bill_notes = (
-        current_bill
-            .period()
-            .occupancy(intervals.clone().into_iter()),
-        current_ti,
-    );
+    let current_bill_notes = (intervals.occupancy(current_bill.period()), current_ti);
     Ok((
         label,
         SharedBill::from_estimate((current_bill, current_bill_notes), borrowed_history)?,
