@@ -25,4 +25,4 @@ jobs:
       run: |
         cargo doc
         sudo pip install ghp-import
-        ghp-import -snfp target/doc
+        # ghp-import -snfp target/doc
