@@ -1,0 +1,22 @@
+name: Rust Docs
+
+on:
+  push:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Docs
+      run: |
+        cargo doc
+        sudo pip install ghp-import
+        ghp-import -n target/doc
+        git push -fq origin gh-pages
