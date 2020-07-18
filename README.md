@@ -1,5 +1,10 @@
 # roommates
 
+![Rust](https://github.com/jonahweissman/roommates/workflows/Rust/badge.svg)
+
+[documentation](https://jonahweissman.github.io/roommates/roommates/index.html) 
+
+---
 This is a simple rust library for splitting bills between multiple people. Under normal circumstances,
 bills can be split evenly between all roommates, but when one or more roommates is gone for an extended
 period of time, this is no longer fair. Instead of making the few roommates who remain shoulder the
