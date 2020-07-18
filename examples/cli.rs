@@ -66,7 +66,7 @@ fn main() {
                 .value_name("WEATHER.CSV"),
         )
         .get_matches();
-    let roommates = RoommateGroup::from_strs(matches.values_of("roommates").unwrap().collect());
+    let roommates: RoommateGroup = matches.values_of("roommates").unwrap().collect();
     let intervals = build_intervals(matches.value_of("intervals").unwrap(), &roommates);
     let mut bills = Vec::new();
     let current_bill_position_from_end = 2;

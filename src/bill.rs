@@ -39,6 +39,7 @@ impl Bill {
     }
 }
 
+/// A bill along with the cost that should be divided evenly
 pub struct SharedBill {
     bill: Bill,
     shared_amount: Money,

@@ -14,12 +14,11 @@ impl RoommateGroup {
         responsibility_intervals: &ResponsibilityRecord,
         billing_period: DateInterval,
     ) -> ResponsibilitySplit {
-        let map: HashMap<Roommate, Ratio<u32>> = self
-            .set()
+        let map: HashMap<&Roommate, Ratio<u32>> = self
             .iter()
             .map(|roommate| {
                 (
-                    roommate.clone(),
+                    roommate,
                     responsibility_intervals.roommate_responsibility(roommate, billing_period),
                 )
             })
@@ -38,9 +37,9 @@ impl RoommateGroup {
     pub fn split_bill_list<'a, I>(
         &self,
         bills_with_usage_proportions: I,
-    ) -> HashMap<Roommate, Money>
+    ) -> HashMap<&'a Roommate, Money>
     where
-        I: IntoIterator<Item = (&'a SharedBill, &'a ResponsibilitySplit)>,
+        I: IntoIterator<Item = (&'a SharedBill, &'a ResponsibilitySplit<'a>)>,
     {
         let mut bills_with_usage_proportions = bills_with_usage_proportions.into_iter().peekable();
         let currency = bills_with_usage_proportions
@@ -66,15 +65,15 @@ impl RoommateGroup {
             })
     }
 
-    fn split(
+    fn split<'a>(
         &self,
         bill: &SharedBill,
-        usage_proportion: &ResponsibilitySplit,
-    ) -> HashMap<Roommate, Money> {
+        usage_proportion: &'a ResponsibilitySplit,
+    ) -> HashMap<&'a Roommate, Money> {
         usage_proportion
             .hash_map()
             .into_iter()
-            .map(|(roommate, share)| (roommate.clone(), self.divide(bill, share)))
+            .map(|(roommate, share)| (roommate, self.divide(bill, share)))
             .collect()
     }
 
@@ -90,14 +89,14 @@ impl RoommateGroup {
             .mul_rational(personally_responsible)
     }
 
-    fn build_split(&self, map: HashMap<Roommate, Ratio<u32>>) -> ResponsibilitySplit {
+    fn build_split(&self, map: HashMap<&Roommate, Ratio<u32>>) -> ResponsibilitySplit {
         let sum = map.values().sum::<Ratio<u32>>();
-        let all_roommates = self.set().iter();
+        let all_roommates = self.iter();
         let map: HashMap<_, _> = if sum == Ratio::from_integer(1) {
             all_roommates
                 .map(|r| {
                     (
-                        r.clone(),
+                        r,
                         *map.get(r)
                             .unwrap_or_else(|| panic!("roommate not in RoommateGroup {}", r)),
                     )
@@ -105,7 +104,7 @@ impl RoommateGroup {
                 .collect()
         } else if sum == Ratio::from_integer(0) {
             all_roommates
-                .map(|r| (r.clone(), Ratio::new(1u32, self.count())))
+                .map(|r| (r, Ratio::new(1u32, self.count())))
                 .collect()
         } else {
             panic!("sum must be 1 or 0")
@@ -136,11 +135,11 @@ impl ResponsibilityRecord<'_> {
     }
 }
 
-pub struct ResponsibilitySplit(HashMap<Roommate, Ratio<u32>>);
+pub struct ResponsibilitySplit<'a>(HashMap<&'a Roommate, Ratio<u32>>);
 
-impl ResponsibilitySplit {
-    pub fn hash_map(&self) -> HashMap<&Roommate, Ratio<u32>> {
-        self.0.iter().map(|(r, s)| (r, *s)).collect()
+impl<'a> ResponsibilitySplit<'a> {
+    pub fn hash_map(&self) -> HashMap<&'a Roommate, Ratio<u32>> {
+        self.0.iter().map(|(k, v)| (*k, *v)).collect()
     }
 }
 
@@ -166,11 +165,16 @@ mod tests {
     use std::iter;
     use steel_cent::currency::USD;
 
-    fn build_rs(rg: RoommateGroup, pairs: Vec<(&str, u32, u32)>) -> ResponsibilitySplit {
+    fn build_rs<'a>(rg: &'a RoommateGroup, pairs: Vec<(&str, u32, u32)>) -> ResponsibilitySplit<'a> {
         rg.build_split(
             pairs
                 .into_iter()
-                .map(|(name, n, d)| (Roommate::new(name), Ratio::new(n, d)))
+                .map(|(name, n, d)| {
+                    (
+                        rg.borrow_by_name(name).expect("name not in roommategroup"),
+                        Ratio::new(n, d),
+                    )
+                })
                 .collect(),
         )
     }
@@ -178,27 +182,18 @@ mod tests {
     #[test]
     #[should_panic]
     fn sum_over_one() {
-        let roomies = vec!["a", "b", "c"]
-            .into_iter()
-            .map(|n| Roommate::new(n))
-            .collect::<Vec<_>>();
-        let rg = RoommateGroup::new(roomies.iter().collect::<Vec<_>>());
-        let _rs = build_rs(rg, vec![("a", 2, 3), ("b", 1, 3), ("c", 1, 3)]);
+        let rg: RoommateGroup = vec!["a", "b", "c"].into_iter().collect();
+        let _rs = build_rs(&rg, vec![("a", 2, 3), ("b", 1, 3), ("c", 1, 3)]);
     }
 
     #[test]
     fn empty_list() {
-        let roomies = vec!["a", "b", "c"]
-            .into_iter()
-            .map(|n| Roommate::new(n))
-            .collect::<Vec<_>>();
-        let rg = RoommateGroup::new(roomies.iter().collect::<Vec<_>>());
-        let rs = build_rs(rg, vec![]);
+        let rg: RoommateGroup = vec!["a", "b", "c"].into_iter().collect();
+        let rs = build_rs(&rg, vec![]);
         assert_eq!(
             rs.hash_map().into_iter().collect::<HashSet<_>>(),
-            roomies
-                .iter()
-                .zip(iter::repeat(Ratio::new(1, 3)).take(3))
+            rg.iter()
+                .zip(iter::repeat(Ratio::<u32>::new(1, 3)).take(3))
                 .collect::<HashSet<_>>(),
         );
     }
@@ -207,27 +202,30 @@ mod tests {
     fn partial_interval_with_weights_responsibilities() {
         let start = (2020, 1, 10);
         let end = (2020, 1, 20);
-        let me = Roommate::new("me");
-        let someone = Roommate::new("someone");
-        let intervals = vec![
-            ResponsibilityInterval::new(&me, DateInterval::new((2020, 1, 18), end).unwrap(), 1),
+        let group: RoommateGroup = vec!["me", "someone"].into_iter().collect();
+        let record: ResponsibilityRecord = vec![
             ResponsibilityInterval::new(
-                &someone,
+                group.borrow_by_name("me").unwrap(),
+                DateInterval::new((2020, 1, 18), end).unwrap(),
+                1,
+            ),
+            ResponsibilityInterval::new(
+                group.borrow_by_name("someone").unwrap(),
                 DateInterval::new(start, (2020, 1, 13)).unwrap(),
                 3,
             ),
-        ];
-        let record = intervals.iter().cloned().collect::<ResponsibilityRecord>();
-        let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
+        ]
+        .into_iter()
+        .collect();
         let split =
             group.individual_responsibilities(&record, DateInterval::new(start, end).unwrap());
         let table: HashMap<_, _> = split.hash_map();
         assert_eq!(
-            *table.get(&intervals[0].roommate()).unwrap(),
-            Ratio::new(2 * 3, 4 * 4 + 2 * 3),
+            table.get(group.borrow_by_name("me").unwrap()).unwrap(),
+            &Ratio::new(2 * 3, 4 * 4 + 2 * 3),
         );
         assert_eq!(
-            table.values().cloned().sum::<Ratio<u32>>(),
+            table.values().sum::<Ratio<u32>>(),
             Ratio::from_integer(1),
         );
     }
@@ -236,23 +234,19 @@ mod tests {
     fn no_overlap_between_billing_period_and_intervals() {
         let start = (2020, 1, 2);
         let end = (2020, 2, 2);
-        let me = Roommate::new("me");
-        let intervals = vec![ResponsibilityInterval::new(
-            &me,
+        let group: RoommateGroup = vec!["me", "someone"].into_iter().collect();
+        let record: ResponsibilityRecord = vec![ResponsibilityInterval::new(
+            group.borrow_by_name("me").unwrap(),
             DateInterval::new((2019, 1, 2), (2019, 2, 2)).unwrap(),
             0,
-        )];
-        let record = intervals.iter().cloned().collect::<ResponsibilityRecord>();
+        )].into_iter().collect();
         let billing_period = DateInterval::new(start, end).unwrap();
-        let group = RoommateGroup::new(vec![&Roommate::new("me"), &Roommate::new("someone")]);
         assert_eq!(record.occupancy_over(billing_period), 0);
         assert_eq!(
-            **group
+            *group
                 .individual_responsibilities(&record, billing_period)
                 .hash_map()
-                .iter()
-                .collect::<HashMap<_, _>>()
-                .get(&intervals[0].roommate())
+                .get(group.borrow_by_name("me").unwrap())
                 .unwrap(),
             Ratio::new(1, 2)
         );
@@ -271,33 +265,37 @@ mod tests {
 
     #[test]
     fn regular_bill() {
-        let (bob, joe) = (Roommate::new("bob"), Roommate::new("joe"));
-        let roomies = RoommateGroup::new(vec![&bob, &joe]);
+        let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::new(1, 4), Ratio::new(3, 4)];
         let split = roomies.build_split(
-            vec![bob.clone(), joe.clone()]
-                .into_iter()
-                .zip(usage_proportions)
-                .collect(),
+            vec![
+                roomies.borrow_by_name("bob").unwrap(),
+                roomies.borrow_by_name("joe").unwrap(),
+            ]
+            .into_iter()
+            .zip(usage_proportions)
+            .collect(),
         );
         let total = Money::of_major_minor(USD, 99, 99);
         let shared_cost = Money::of_major_minor(USD, 35, 46);
         let bill = new_bill(total, shared_cost);
         let share = &roomies.split(&bill, &split);
-        let bob_share = *share.get(&bob).unwrap();
+        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
         assert_eq!(bob_share, shared_cost / 2 + (total - shared_cost) * 0.25);
     }
 
     #[test]
     fn list_of_bills() {
-        let (bob, joe) = (Roommate::new("bob"), Roommate::new("joe"));
-        let roomies = RoommateGroup::new(vec![&bob, &joe]);
+        let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::new(1, 4), Ratio::new(3, 4)];
         let split = roomies.build_split(
-            vec![bob.clone(), joe.clone()]
-                .into_iter()
-                .zip(usage_proportions)
-                .collect(),
+            vec![
+                roomies.borrow_by_name("bob").unwrap(),
+                roomies.borrow_by_name("joe").unwrap(),
+            ]
+            .into_iter()
+            .zip(usage_proportions)
+            .collect(),
         );
         let total = Money::of_major_minor(USD, 99, 99);
         let shared_cost = Money::of_major_minor(USD, 35, 46);
@@ -307,7 +305,7 @@ mod tests {
         ];
         let share =
             roomies.split_bill_list(bills.iter().map(|bill| (bill, &split)).collect::<Vec<_>>());
-        let bob_share = *share.get(&bob).unwrap();
+        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
         let expected = shared_cost.checked_mul_f(1.5).unwrap()
             + (total - shared_cost).checked_mul_f(0.25).unwrap() * 3;
         assert_eq!(bob_share, expected);
@@ -320,14 +318,16 @@ mod tests {
 
     #[test]
     fn list_of_zero_valued_bills() {
-        let (bob, joe) = (Roommate::new("bob"), Roommate::new("joe"));
-        let roomies = RoommateGroup::new(vec![&bob, &joe]);
+        let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::new(1, 4), Ratio::new(3, 4)];
         let split = roomies.build_split(
-            vec![bob.clone(), joe.clone()]
-                .into_iter()
-                .zip(usage_proportions)
-                .collect(),
+            vec![
+                roomies.borrow_by_name("bob").unwrap(),
+                roomies.borrow_by_name("joe").unwrap(),
+            ]
+            .into_iter()
+            .zip(usage_proportions)
+            .collect(),
         );
         let total = Money::of_major_minor(USD, 0, 0);
         let shared_cost = Money::of_major_minor(USD, 0, 0);
@@ -337,7 +337,7 @@ mod tests {
         ];
         let bill_list: Vec<_> = bills.iter().map(|bill| (bill, &split)).collect();
         let share = roomies.split_bill_list(bill_list);
-        let bob_share = *share.get(&bob).unwrap();
+        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
         let expected = Money::zero(USD);
         assert_eq!(bob_share, expected);
         assert_eq!(
@@ -349,22 +349,24 @@ mod tests {
 
     #[test]
     fn no_reponsibilities() {
-        let (bob, joe) = (Roommate::new("bob"), Roommate::new("joe"));
-        let roomies = RoommateGroup::new(vec![&bob, &joe]);
+        let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::from_integer(0), Ratio::from_integer(0)];
         let split = roomies.build_split(
-            vec![bob.clone(), joe.clone()]
-                .into_iter()
-                .zip(usage_proportions)
-                .collect(),
+            vec![
+                roomies.borrow_by_name("bob").unwrap(),
+                roomies.borrow_by_name("joe").unwrap(),
+            ]
+            .into_iter()
+            .zip(usage_proportions)
+            .collect(),
         );
         let total = Money::of_major_minor(USD, 30, 0);
         let shared_cost = Money::of_major_minor(USD, 25, 0);
         let bills = vec![new_bill(total, shared_cost)];
         let bill_list: Vec<_> = bills.iter().map(|bill| (bill, &split)).collect();
         let share = roomies.split_bill_list(bill_list);
-        let bob_share = *share.get(&bob).unwrap();
-        let joe_share = *share.get(&joe).unwrap();
+        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
+        let joe_share = *share.get(roomies.borrow_by_name("joe").unwrap()).unwrap();
         assert_eq!(bob_share, joe_share);
         assert_eq!(bob_share + joe_share, total);
     }
@@ -388,16 +390,12 @@ mod tests {
     #[test]
     #[ignore]
     fn rounding_issue_everyone_pays_the_same() {
-        let r = vec!["a", "b", "c"]
-            .into_iter()
-            .map(|n| Roommate::new(n))
-            .collect::<Vec<_>>();
-        let roomies = RoommateGroup::new(r.iter());
+        let roomies = vec!["a", "b", "c"].into_iter().collect::<RoommateGroup>();
         let usage_proportions = vec![0, 0, 0]
             .into_iter()
             .map(|p| Ratio::from_integer(p))
             .collect::<Vec<_>>();
-        let split = roomies.build_split(r.iter().cloned().zip(usage_proportions).collect());
+        let split = roomies.build_split(roomies.iter().zip(usage_proportions).collect());
         let total = Money::of_major_minor(USD, 20, 00);
         let shared_cost = Money::of_major_minor(USD, 10, 00);
         let bills = vec![new_bill(total, shared_cost)];

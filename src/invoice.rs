@@ -74,7 +74,8 @@ impl RoommateGroup {
         self.split_bill_list(bill_list.iter().map(|(b, s)| (b, s)))
             .into_iter()
             .map(|(to, total)| {
-                let components = invoice_components.remove(&to).unwrap();
+                let components = invoice_components.remove(to).unwrap();
+                let to = to.clone();
                 Invoice {
                     to,
                     total,
