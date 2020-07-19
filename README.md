@@ -1,9 +1,7 @@
 # roommates
 
 ![Rust](https://github.com/jonahweissman/roommates/workflows/Rust/badge.svg)
-
-[documentation](https://jonahweissman.github.io/roommates/roommates/index.html) 
-
+[![Rust Docs](https://github.com/jonahweissman/roommates/workflows/Rust%20Docs/badge.svg)](https://jonahweissman.github.io/roommates/roommates/index.html)
 ---
 This is a simple rust library for splitting bills between multiple people. Under normal circumstances,
 bills can be split evenly between all roommates, but when one or more roommates is gone for an extended
@@ -17,6 +15,10 @@ entire cost, this library:
 Check the [examples](/examples) folder for a simple command line interface.
 
 Does not currently handle rounding errors, but will soon.
+
+### Documentation
+
+Hosted on GitHub Pages: https://jonahweissman.github.io/roommates/roommates/index.html
 
 ### License
 
