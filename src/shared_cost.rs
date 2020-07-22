@@ -43,15 +43,12 @@ impl SharedBill {
                 + bill.fixed_cost().minor_amount() as f64,
         ));
         let currency = bill.amount_due().currency;
-        Ok(SharedBill::new(
-            bill,
-            Money::of_minor(currency, shared_cost as i64),
-        ))
+        Ok(SharedBill::new(bill, Money::of_minor(currency, shared_cost as i64)).unwrap())
     }
 
     pub fn from_fixed(bill: Bill) -> Self {
         let shared_amount = bill.fixed_cost();
-        SharedBill::new(bill, shared_amount)
+        SharedBill::new(bill, shared_amount).expect("invalid fixed cost")
     }
 }
 impl Bill {
@@ -111,8 +108,7 @@ mod tests {
                 (
                     Bill::new(
                         Money::of_minor(USD, m),
-                        DateInterval::from_strs("01/01/20", "02/01/20"),
-                        None,
+                        DateInterval::from_strs("01/01/2020", "02/01/2020").unwrap(),
                     ),
                     oc,
                     None,
@@ -121,8 +117,7 @@ mod tests {
             .collect::<Vec<_>>();
         let current_bill = Bill::new(
             Money::of_minor(USD, current.0),
-            DateInterval::from_strs("04/01/20", "05/01/20"),
-            None,
+            DateInterval::from_strs("04/01/2020", "05/01/2020").unwrap(),
         );
         let notes = (current.1, None);
         (bills, current_bill, notes)
@@ -199,28 +194,29 @@ mod tests {
     fn bill_with_fixed_cost() {
         let bill_history = vec![
             (
-                Bill::new(
+                Bill::new_with_fixed_cost(
                     Money::of_minor(USD, 110_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
-                    Some(Money::of_minor(USD, 100_00)),
-                ),
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
+                    Money::of_minor(USD, 100_00),
+                )
+                .unwrap(),
                 0,
                 None,
             ),
             (
-                Bill::new(
+                Bill::new_with_fixed_cost(
                     Money::of_minor(USD, 120_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
-                    Some(Money::of_minor(USD, 100_00)),
-                ),
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
+                    Money::of_minor(USD, 100_00),
+                )
+                .unwrap(),
                 1,
                 None,
             ),
             (
                 Bill::new(
                     Money::of_minor(USD, 30_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
-                    None,
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
                 ),
                 2,
                 None,
@@ -228,18 +224,18 @@ mod tests {
             (
                 Bill::new(
                     Money::of_minor(USD, 40_00),
-                    DateInterval::from_strs("01/01/01", "02/02/02"),
-                    None,
+                    DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
                 ),
                 3,
                 None,
             ),
         ];
-        let bill = Bill::new(
+        let bill = Bill::new_with_fixed_cost(
             Money::of_minor(USD, 50_00),
-            DateInterval::from_strs("01/01/01", "02/02/02"),
-            Some(Money::of_minor(USD, 10_00)),
-        );
+            DateInterval::from_strs("01/01/2001", "02/02/2002").unwrap(),
+            Money::of_minor(USD, 10_00),
+        )
+        .unwrap();
         let notes = (4, None);
         let current = SharedBill::from_estimate(
             (bill, notes),

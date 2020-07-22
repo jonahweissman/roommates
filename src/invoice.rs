@@ -47,16 +47,21 @@ impl RoommateGroup {
                 }
                 SharingData::Fixed(bill) => (
                     label,
-                    SharedBill::from_fixed(Bill::new(
-                        bill.amount_due(),
-                        bill.period(),
-                        Some(bill.amount_due()),
-                    )),
+                    SharedBill::from_fixed(
+                        Bill::new_with_fixed_cost(
+                            bill.amount_due(),
+                            bill.usage_period(),
+                            bill.amount_due(),
+                        )
+                        .expect("invalid fixed cost"),
+                    ),
                 ),
             })
             .map(|(label, shared_bill)| {
-                let split = self
-                    .individual_responsibilities(responsibility_intervals, shared_bill.period());
+                let split = self.individual_responsibilities(
+                    responsibility_intervals,
+                    shared_bill.usage_period(),
+                );
                 for (roommate, share) in split.hash_map().into_iter() {
                     invoice_components
                         .entry(roommate.clone())
@@ -74,7 +79,8 @@ impl RoommateGroup {
         self.split_bill_list(bill_list.iter().map(|(b, s)| (b, s)))
             .into_iter()
             .map(|(to, total)| {
-                let components = invoice_components.remove(&to).unwrap();
+                let components = invoice_components.remove(to).unwrap();
+                let to = to.clone();
                 Invoice {
                     to,
                     total,
@@ -97,12 +103,15 @@ where
     let history = history_with_ti
         .into_iter()
         .map(|(bill, temperature_index)| {
-            let occupancy = intervals.occupancy(bill.period());
+            let occupancy = intervals.occupancy_over(bill.usage_period());
             (bill, occupancy, temperature_index)
         })
         .collect::<Vec<_>>();
     let borrowed_history = history.iter().map(|(b, ao, ti)| (b, *ao, *ti));
-    let current_bill_notes = (intervals.occupancy(current_bill.period()), current_ti);
+    let current_bill_notes = (
+        intervals.occupancy_over(current_bill.usage_period()),
+        current_ti,
+    );
     Ok((
         label,
         SharedBill::from_estimate((current_bill, current_bill_notes), borrowed_history)?,
