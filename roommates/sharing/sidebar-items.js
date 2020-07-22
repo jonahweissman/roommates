@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["SharingData",""]],"struct":[["Bill","Stores information about a bill"],["SharedBill","A Bill along with the communally shared cost"]]});
