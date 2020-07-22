@@ -4,7 +4,7 @@ use std::iter::FromIterator;
 use std::slice::Iter;
 
 use super::roommate::Roommate;
-use super::RoommatesError;
+use super::Error;
 
 /// A continuous interval that someone stayed in the house
 ///
@@ -187,7 +187,7 @@ impl<'a> FromIterator<ResponsibilityInterval<'a>> for ResponsibilityRecord<'a> {
 /// The time between a start date and an end date, inclusive
 ///
 /// Does not store timezone information.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DateInterval(NaiveDate, NaiveDate);
 
 impl DateInterval {
@@ -196,7 +196,7 @@ impl DateInterval {
     /// Returns a [`NegativeLengthInterval`] error if the end date is before
     /// the start date.
     ///
-    /// [`NegativeLengthInterval`]: enum.RoommatesError.html#variant.NegativeLengthInterval
+    /// [`NegativeLengthInterval`]: enum.Error.html#variant.NegativeLengthInterval
     ///
     /// # Examples
     /// ```
@@ -216,7 +216,7 @@ impl DateInterval {
     pub fn new(
         (start_year, start_month, start_day): (i32, u32, u32),
         (end_year, end_month, end_day): (i32, u32, u32),
-    ) -> Result<Self, RoommatesError> {
+    ) -> Result<Self, Error> {
         let start = NaiveDate::from_ymd(start_year, start_month, start_day);
         let end = NaiveDate::from_ymd(end_year, end_month, end_day);
         Ok(DateInterval::create_interval(start, end)?)
@@ -228,8 +228,8 @@ impl DateInterval {
     /// the start date. Returns an [`InvalidDate`] error if either string
     /// cannot be parsed as a date in the expected format.
     ///
-    /// [`NegativeLengthInterval`]: enum.RoommatesError.html#variant.NegativeLengthInterval
-    /// [`InvalidDate`]: enum.RoommatesError.html#variant.InvalidDate
+    /// [`NegativeLengthInterval`]: enum.Error.html#variant.NegativeLengthInterval
+    /// [`InvalidDate`]: enum.Error.html#variant.InvalidDate
     ///
     /// # Examples
     /// ```
@@ -239,27 +239,47 @@ impl DateInterval {
     /// assert!(DateInterval::from_strs("12/01/2020", "01/01/2020").is_err());
     /// assert!(DateInterval::from_strs("01/01/2020", "13/01/2020").is_err());
     /// assert!(DateInterval::from_strs("01-01-2020", "12-01-2020").is_err());
-    pub fn from_strs(start: &str, end: &str) -> Result<Self, RoommatesError> {
+    pub fn from_strs(start: &str, end: &str) -> Result<Self, Error> {
         let start = NaiveDate::parse_from_str(start, "%m/%d/%Y")
-            .map_err(|source| RoommatesError::InvalidDate { source })?;
+            .map_err(|source| Error::InvalidDate { source })?;
         let end = NaiveDate::parse_from_str(end, "%m/%d/%Y")
-            .map_err(|source| RoommatesError::InvalidDate { source })?;
+            .map_err(|source| Error::InvalidDate { source })?;
         Ok(DateInterval::create_interval(start, end)?)
     }
 
-    fn create_interval(start: NaiveDate, end: NaiveDate) -> Result<Self, RoommatesError> {
+    fn create_interval(start: NaiveDate, end: NaiveDate) -> Result<Self, Error> {
         if start > end {
-            return Err(RoommatesError::NegativeLengthInterval);
+            return Err(Error::NegativeLengthInterval);
         }
         Ok(DateInterval(start, end))
     }
 
     /// The first day of the interval
+    ///
+    /// # Examples
+    /// ```
+    /// use roommates::DateInterval;
+    /// use chrono::naive::NaiveDate;
+    ///
+    /// let january = DateInterval::new((2020, 1, 1), (2020, 1, 31)).unwrap();
+    /// assert_eq!(january.start(), NaiveDate::from_ymd(2020, 1, 1));
+    /// assert_eq!(january.end(), NaiveDate::from_ymd(2020, 1, 31));
+    /// ```
     pub fn start(self) -> NaiveDate {
         self.0
     }
 
     /// The last day of the interval
+    ///
+    /// # Examples
+    /// ```
+    /// use roommates::DateInterval;
+    /// use chrono::naive::NaiveDate;
+    ///
+    /// let january = DateInterval::new((2020, 1, 1), (2020, 1, 31)).unwrap();
+    /// assert_eq!(january.start(), NaiveDate::from_ymd(2020, 1, 1));
+    /// assert_eq!(january.end(), NaiveDate::from_ymd(2020, 1, 31));
+    /// ```
     pub fn end(self) -> NaiveDate {
         self.1
     }

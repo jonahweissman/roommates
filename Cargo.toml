@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 chrono = "0.4.11"
 itertools = "0.9.0"
-linregress = { git = "https://github.com/n1m3/linregress" }
+linregress = "0.4.0"
 num = "0.3.0"
 steel-cent = "0.2.3"
 thiserror = "1.0"

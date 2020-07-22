@@ -165,7 +165,10 @@ mod tests {
     use std::iter;
     use steel_cent::currency::USD;
 
-    fn build_rs<'a>(rg: &'a RoommateGroup, pairs: Vec<(&str, u32, u32)>) -> ResponsibilitySplit<'a> {
+    fn build_rs<'a>(
+        rg: &'a RoommateGroup,
+        pairs: Vec<(&str, u32, u32)>,
+    ) -> ResponsibilitySplit<'a> {
         rg.build_split(
             pairs
                 .into_iter()
@@ -224,10 +227,7 @@ mod tests {
             table.get(group.borrow_by_name("me").unwrap()).unwrap(),
             &Ratio::new(2 * 3, 4 * 4 + 2 * 3),
         );
-        assert_eq!(
-            table.values().sum::<Ratio<u32>>(),
-            Ratio::from_integer(1),
-        );
+        assert_eq!(table.values().sum::<Ratio<u32>>(), Ratio::from_integer(1),);
     }
 
     #[test]
@@ -239,7 +239,9 @@ mod tests {
             group.borrow_by_name("me").unwrap(),
             DateInterval::new((2019, 1, 2), (2019, 2, 2)).unwrap(),
             0,
-        )].into_iter().collect();
+        )]
+        .into_iter()
+        .collect();
         let billing_period = DateInterval::new(start, end).unwrap();
         assert_eq!(record.occupancy_over(billing_period), 0);
         assert_eq!(
@@ -257,10 +259,10 @@ mod tests {
             Bill::new(
                 total,
                 DateInterval::new((2020, 1, 2), (2020, 2, 2)).unwrap(),
-                None,
             ),
             shared,
         )
+        .expect("bad shared amount")
     }
 
     #[test]

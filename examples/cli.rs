@@ -119,7 +119,7 @@ impl FromStringRecord for Bill {
             sr.get(2).expect("Missing end date"),
         )
         .expect("invalid interval");
-        Bill::new(amount_due, period, None)
+        Bill::new(amount_due, period)
     }
 }
 
@@ -190,7 +190,7 @@ impl WeatherData {
     }
 
     fn calculate_temperature_index(&self, bill: &Bill) -> f64 {
-        let (start, end) = (bill.period().start(), bill.period().end());
+        let (start, end) = (bill.usage_period().start(), bill.usage_period().end());
         self.data
             .iter()
             .filter(|(x, _, _)| x > &start && x < &end)
