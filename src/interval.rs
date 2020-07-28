@@ -1,10 +1,23 @@
+use chrono::format::ParseError;
 use chrono::{naive::NaiveDate, Duration};
 use std::cmp::{max, min};
 use std::iter::FromIterator;
 use std::slice::Iter;
+use thiserror::Error;
 
 use super::roommate::Roommate;
-use super::Error;
+
+#[derive(Debug, Error)]
+pub enum IntervalError {
+    #[error("The end of an interval cannot be before the start")]
+    NegativeLengthInterval,
+
+    #[error("Error parsing date")]
+    InvalidDate {
+        #[from]
+        source: ParseError,
+    },
+}
 
 /// A continuous interval that someone stayed in the house
 ///
@@ -196,7 +209,7 @@ impl DateInterval {
     /// Returns a [`NegativeLengthInterval`] error if the end date is before
     /// the start date.
     ///
-    /// [`NegativeLengthInterval`]: enum.Error.html#variant.NegativeLengthInterval
+    /// [`NegativeLengthInterval`]: enum.IntervalError.html#variant.NegativeLengthInterval
     ///
     /// # Examples
     /// ```
@@ -216,7 +229,7 @@ impl DateInterval {
     pub fn new(
         (start_year, start_month, start_day): (i32, u32, u32),
         (end_year, end_month, end_day): (i32, u32, u32),
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, IntervalError> {
         let start = NaiveDate::from_ymd(start_year, start_month, start_day);
         let end = NaiveDate::from_ymd(end_year, end_month, end_day);
         Ok(DateInterval::create_interval(start, end)?)
@@ -228,8 +241,8 @@ impl DateInterval {
     /// the start date. Returns an [`InvalidDate`] error if either string
     /// cannot be parsed as a date in the expected format.
     ///
-    /// [`NegativeLengthInterval`]: enum.Error.html#variant.NegativeLengthInterval
-    /// [`InvalidDate`]: enum.Error.html#variant.InvalidDate
+    /// [`NegativeLengthInterval`]: enum.IntervalError.html#variant.NegativeLengthInterval
+    /// [`InvalidDate`]: enum.IntervalError.html#variant.InvalidDate
     ///
     /// # Examples
     /// ```
@@ -239,17 +252,17 @@ impl DateInterval {
     /// assert!(DateInterval::from_strs("12/01/2020", "01/01/2020").is_err());
     /// assert!(DateInterval::from_strs("01/01/2020", "13/01/2020").is_err());
     /// assert!(DateInterval::from_strs("01-01-2020", "12-01-2020").is_err());
-    pub fn from_strs(start: &str, end: &str) -> Result<Self, Error> {
+    pub fn from_strs(start: &str, end: &str) -> Result<Self, IntervalError> {
         let start = NaiveDate::parse_from_str(start, "%m/%d/%Y")
-            .map_err(|source| Error::InvalidDate { source })?;
+            .map_err(|source| IntervalError::InvalidDate { source })?;
         let end = NaiveDate::parse_from_str(end, "%m/%d/%Y")
-            .map_err(|source| Error::InvalidDate { source })?;
+            .map_err(|source| IntervalError::InvalidDate { source })?;
         Ok(DateInterval::create_interval(start, end)?)
     }
 
-    fn create_interval(start: NaiveDate, end: NaiveDate) -> Result<Self, Error> {
+    fn create_interval(start: NaiveDate, end: NaiveDate) -> Result<Self, IntervalError> {
         if start > end {
-            return Err(Error::NegativeLengthInterval);
+            return Err(IntervalError::NegativeLengthInterval);
         }
         Ok(DateInterval(start, end))
     }

@@ -13,6 +13,7 @@
 //! ```
 //! use roommates::{
 //!     sharing::{Bill, SharedBill},
+//!     splitting::CostSplit,
 //!     ResponsibilityRecord,
 //!     ResponsibilityInterval,
 //!     DateInterval,
@@ -43,62 +44,32 @@
 //!     &responsibility,
 //!     water_bill.usage_period(),
 //! );
-//! let money_split = house.split_bill_list(vec![(&water_bill, &water_bill_split)]);
+//! let money_split = CostSplit::split_bill_list(vec![(&water_bill, &water_bill_split)]);
 //! assert_eq!(
 //!     money_split.get(house.borrow_by_name("Bob").unwrap()).unwrap(),
-//!     &Money::of_minor(USD, 63_33),
+//!     Money::of_minor(USD, 63_33),
 //! );
 //! assert_eq!(
 //!     money_split.get(house.borrow_by_name("Joe").unwrap()).unwrap(),
-//!     &Money::of_minor(USD, 36_66),
+//!     Money::of_minor(USD, 36_66),
 //! );
 //! ```
 
 mod bill;
 mod interval;
-mod invoice;
 mod roommate;
 mod shared_cost;
 mod split;
 
-pub use interval::{DateInterval, ResponsibilityInterval, ResponsibilityRecord};
+pub use interval::{DateInterval, IntervalError, ResponsibilityInterval, ResponsibilityRecord};
 pub use roommate::{Roommate, RoommateGroup};
+
 pub mod sharing {
-    pub use super::bill::Bill;
-    pub use super::bill::SharedBill;
-    pub use super::invoice::SharingData;
+    pub use super::bill::{Bill, BillError, SharedBill};
+    pub use super::shared_cost::{convert_to_shared, convert_to_shared_ti, EstimationError, Occupancy, OccupancyAndTemperature, DependentVariable, IndependentVariable};
 }
+
 pub mod splitting {
-    pub use super::invoice::Invoice;
+    pub use super::split::CostSplit;
     pub use super::split::ResponsibilitySplit;
-}
-
-use chrono::format::ParseError;
-use thiserror::Error;
-
-#[derive(Debug, Error, PartialEq)]
-pub enum Error {
-    #[error("The end of an interval cannot be before the start")]
-    NegativeLengthInterval,
-
-    #[error("Error parsing date")]
-    InvalidDate {
-        #[from]
-        source: ParseError,
-    },
-
-    #[error(transparent)]
-    InvalidFixedCost(InvalidFixedCost),
-}
-
-#[derive(Debug, Error, PartialEq)]
-pub enum InvalidFixedCost {
-    #[error("Fixed cost must be in the same currency as the amount due")]
-    MismatchedCurrencies,
-
-    #[error("Fixed cost cannot be more than the amount due")]
-    ExceedsAmountDue,
-
-    #[error("Fixed cost cannot be negative")]
-    Negative,
 }

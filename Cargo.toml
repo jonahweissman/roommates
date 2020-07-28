@@ -8,7 +8,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 chrono = "0.4.11"
-itertools = "0.9.0"
 linregress = "0.4.0"
 num = "0.3.0"
 steel-cent = "0.2.3"
@@ -17,3 +16,5 @@ thiserror = "1.0"
 [dev-dependencies]
 clap = "2.33.1"
 csv = "1.1"
+itertools = "0.9.0"
+anyhow = "1.0"

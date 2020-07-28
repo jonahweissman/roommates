@@ -1,6 +1,9 @@
 use num::rational::Ratio;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
+use std::vec::IntoIter;
 use steel_cent::Money;
+use thiserror::Error;
 
 use super::bill::SharedBill;
 use super::interval::{DateInterval, ResponsibilityRecord};
@@ -19,98 +22,56 @@ impl RoommateGroup {
             .map(|roommate| {
                 (
                     roommate,
+                    // this will always have the same denominator, and
+                    // the numerator will be from disjoint sets of the RoommateGroup
                     responsibility_intervals.roommate_responsibility(roommate, billing_period),
                 )
             })
             .collect();
-        self.build_split(map)
+        self.build_split(map).unwrap()
     }
 
-    /// Takes a vector (or other collection that can be turned into an iter)
-    /// of [`Bill`]s with corresponding maps for each each Bill of
-    /// how much each roommate is personally responsible for and then outputs
-    /// a new HashMap that accumulates all
+    /// returns a new ResponsibilitySplit from the given map
     ///
-    /// ## Panics
-    /// Panics if bills are not all in the same currency.
-    /// Panics if the list is empty.
-    pub fn split_bill_list<'a, I>(
-        &self,
-        bills_with_usage_proportions: I,
-    ) -> HashMap<&'a Roommate, Money>
-    where
-        I: IntoIterator<Item = (&'a SharedBill, &'a ResponsibilitySplit<'a>)>,
-    {
-        let mut bills_with_usage_proportions = bills_with_usage_proportions.into_iter().peekable();
-        let currency = bills_with_usage_proportions
-            .peek()
-            .expect("must include at least one bill")
-            .0
-            .amount_due()
-            .currency;
-
-        bills_with_usage_proportions
-            .inspect(|(bill, _)| {
-                assert!(
-                    bill.amount_due().currency == currency,
-                    "all bills must have the same currency"
-                )
-            })
-            .map(|(bill, usage_proportion)| self.split(bill, usage_proportion).into_iter())
-            .flatten()
-            .fold(HashMap::new(), |mut m, (k, v)| {
-                let val = m.entry(k).or_insert_with(|| Money::zero(currency));
-                *val = *val + v;
-                m
-            })
-    }
-
-    fn split<'a>(
-        &self,
-        bill: &SharedBill,
-        usage_proportion: &'a ResponsibilitySplit,
-    ) -> HashMap<&'a Roommate, Money> {
-        usage_proportion
-            .hash_map()
-            .into_iter()
-            .map(|(roommate, share)| (roommate, self.divide(bill, share)))
-            .collect()
-    }
-
-    fn divide(&self, bill: &SharedBill, personally_responsible: Ratio<u32>) -> Money {
-        (Money::of_minor(
-            bill.amount_due().currency,
-            bill.shared_amount().minor_amount(),
-        ) / self.count() as i64)
-            + Money::of_minor(
-                bill.amount_due().currency,
-                (bill.amount_due() - bill.shared_amount()).minor_amount(),
-            )
-            .mul_rational(personally_responsible)
-    }
-
-    fn build_split(&self, map: HashMap<&Roommate, Ratio<u32>>) -> ResponsibilitySplit {
+    /// ensures that the ratios add to one
+    fn build_split<'a>(
+        &'a self,
+        map: HashMap<&'a Roommate, Ratio<u32>>,
+    ) -> Result<ResponsibilitySplit, SplitError> {
+        debug_assert_eq!(
+            map.keys().cloned().collect::<HashSet<_>>(),
+            self.iter().collect::<HashSet<_>>()
+        );
         let sum = map.values().sum::<Ratio<u32>>();
-        let all_roommates = self.iter();
         let map: HashMap<_, _> = if sum == Ratio::from_integer(1) {
-            all_roommates
-                .map(|r| {
-                    (
-                        r,
-                        *map.get(r)
-                            .unwrap_or_else(|| panic!("roommate not in RoommateGroup {}", r)),
-                    )
-                })
-                .collect()
+            map
         } else if sum == Ratio::from_integer(0) {
-            all_roommates
+            self.iter()
                 .map(|r| (r, Ratio::new(1u32, self.count())))
                 .collect()
         } else {
-            panic!("sum must be 1 or 0")
+            return Err(SplitError::InvalidSplit);
         };
-        ResponsibilitySplit(map)
+        Ok(ResponsibilitySplit(map))
     }
+}
+
+#[derive(Debug, Error)]
+enum SplitError {
+    #[error("The sum of the ratios must be 1 or 0")]
+    InvalidSplit,
+}
+
+fn divide(bill: &SharedBill, personally_responsible: Ratio<u32>, total_people: i64) -> Money {
+    (Money::of_minor(
+        bill.amount_due().currency,
+        bill.shared_amount().minor_amount(),
+    ) / total_people)
+        + Money::of_minor(
+            bill.amount_due().currency,
+            (bill.amount_due() - bill.shared_amount()).minor_amount(),
+        )
+        .mul_rational(personally_responsible)
 }
 
 impl ResponsibilityRecord<'_> {
@@ -135,6 +96,125 @@ impl ResponsibilityRecord<'_> {
     }
 }
 
+pub struct CostSplit<'a> {
+    split: HashMap<&'a Roommate, (Money, RoundingCorrection)>,
+    total: Money,
+}
+
+enum RoundingCorrection {
+    Above,
+    NoChange,
+    Below,
+}
+
+impl<'a> CostSplit<'a> {
+    pub fn new<I>(split: I, total: Money) -> Self
+    where
+        I: IntoIterator<Item = (&'a Roommate, Money)>,
+    {
+        // still need to check that they're all the same currency
+        let split = split
+            .into_iter()
+            .map(|(k, v)| (k, (v, RoundingCorrection::NoChange)))
+            .collect();
+        CostSplit { split, total }
+    }
+
+    pub fn get(&self, roommate: &'a Roommate) -> Option<Money> {
+        self.split.get(roommate).map(apply_correction)
+    }
+
+    /// Takes a vector (or other collection that can be turned into an iter)
+    /// of [`Bill`]s with corresponding maps for each each Bill of
+    /// how much each roommate is personally responsible for and then outputs
+    /// a new HashMap that accumulates all
+    ///
+    /// ## Panics
+    /// Panics if bills are not all in the same currency.
+    /// Panics if the list is empty.
+    pub fn split_bill_list<I>(bills_with_usage_proportions: I) -> CostSplit<'a>
+    where
+        I: IntoIterator<Item = (&'a SharedBill, &'a ResponsibilitySplit<'a>)>,
+    {
+        bills_with_usage_proportions
+            .into_iter()
+            .map(|(bill, usage_proportion)| CostSplit::split(bill, usage_proportion))
+            .collect()
+    }
+
+    fn split(bill: &SharedBill, usage_proportion: &'a ResponsibilitySplit) -> CostSplit<'a> {
+        CostSplit::new(
+            usage_proportion
+                .hash_map()
+                .into_iter()
+                .map(|(roommate, share)| {
+                    (roommate, divide(bill, share, usage_proportion.0.len() as _))
+                }),
+            bill.amount_due(),
+        )
+    }
+}
+
+fn apply_correction((money, correction): &(Money, RoundingCorrection)) -> Money {
+    Money::of_minor(
+        money.currency,
+        match correction {
+            RoundingCorrection::Above => 1,
+            RoundingCorrection::NoChange => 0,
+            RoundingCorrection::Below => -1,
+        } + money.minor_amount(),
+    )
+}
+
+impl<'a> IntoIterator for CostSplit<'a> {
+    type Item = (&'a Roommate, Money);
+    type IntoIter = IntoIter<(&'a Roommate, Money)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.split
+            .into_iter()
+            .map(|(k, v)| (k, apply_correction(&v)))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+
+impl<'a> FromIterator<CostSplit<'a>> for CostSplit<'a> {
+    fn from_iter<I: IntoIterator<Item = CostSplit<'a>>>(iter: I) -> Self {
+        let mut iter = iter.into_iter().peekable();
+        let currency = iter
+            .peek()
+            .expect("must include at least one costsplit")
+            .total
+            .currency;
+        let (split, total) = iter
+            .inspect(|split| {
+                assert!(
+                    split.total.currency == currency,
+                    "all costsplits must have the same currency"
+                )
+            })
+            .fold(
+                (HashMap::new(), Money::zero(currency)),
+                |(mut m, mut t), c| {
+                    assert_eq!(currency, c.total.currency);
+                    t = t + c.total;
+                    for (k, v) in c {
+                        let (val, _) = m.entry(k).or_insert_with(|| {
+                            (Money::zero(currency), RoundingCorrection::NoChange)
+                        });
+                        *val = *val + v;
+                    }
+                    (m, t)
+                },
+            );
+        CostSplit { split, total }
+    }
+}
+
+/// stores the fraction that each roommate is personally responsible for
+///
+/// the only way to construct one is with `individual_responsibilities`
 pub struct ResponsibilitySplit<'a>(HashMap<&'a Roommate, Ratio<u32>>);
 
 impl<'a> ResponsibilitySplit<'a> {
@@ -161,44 +241,13 @@ mod tests {
     use super::*;
     use crate::bill::Bill;
     use crate::interval::{DateInterval, ResponsibilityInterval};
-    use std::collections::HashSet;
-    use std::iter;
     use steel_cent::currency::USD;
-
-    fn build_rs<'a>(
-        rg: &'a RoommateGroup,
-        pairs: Vec<(&str, u32, u32)>,
-    ) -> ResponsibilitySplit<'a> {
-        rg.build_split(
-            pairs
-                .into_iter()
-                .map(|(name, n, d)| {
-                    (
-                        rg.borrow_by_name(name).expect("name not in roommategroup"),
-                        Ratio::new(n, d),
-                    )
-                })
-                .collect(),
-        )
-    }
-
-    #[test]
-    #[should_panic]
-    fn sum_over_one() {
-        let rg: RoommateGroup = vec!["a", "b", "c"].into_iter().collect();
-        let _rs = build_rs(&rg, vec![("a", 2, 3), ("b", 1, 3), ("c", 1, 3)]);
-    }
 
     #[test]
     fn empty_list() {
-        let rg: RoommateGroup = vec!["a", "b", "c"].into_iter().collect();
-        let rs = build_rs(&rg, vec![]);
-        assert_eq!(
-            rs.hash_map().into_iter().collect::<HashSet<_>>(),
-            rg.iter()
-                .zip(iter::repeat(Ratio::<u32>::new(1, 3)).take(3))
-                .collect::<HashSet<_>>(),
-        );
+        let rg: RoommateGroup = vec![].into_iter().collect();
+        let rs = rg.build_split(HashMap::new()).unwrap();
+        assert!(rs.hash_map().is_empty());
     }
 
     #[test]
@@ -269,20 +318,22 @@ mod tests {
     fn regular_bill() {
         let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::new(1, 4), Ratio::new(3, 4)];
-        let split = roomies.build_split(
-            vec![
-                roomies.borrow_by_name("bob").unwrap(),
-                roomies.borrow_by_name("joe").unwrap(),
-            ]
-            .into_iter()
-            .zip(usage_proportions)
-            .collect(),
-        );
+        let split = roomies
+            .build_split(
+                vec![
+                    roomies.borrow_by_name("bob").unwrap(),
+                    roomies.borrow_by_name("joe").unwrap(),
+                ]
+                .into_iter()
+                .zip(usage_proportions)
+                .collect(),
+            )
+            .unwrap();
         let total = Money::of_major_minor(USD, 99, 99);
         let shared_cost = Money::of_major_minor(USD, 35, 46);
         let bill = new_bill(total, shared_cost);
-        let share = &roomies.split(&bill, &split);
-        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
+        let share = &CostSplit::split(&bill, &split);
+        let bob_share = share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
         assert_eq!(bob_share, shared_cost / 2 + (total - shared_cost) * 0.25);
     }
 
@@ -290,15 +341,17 @@ mod tests {
     fn list_of_bills() {
         let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::new(1, 4), Ratio::new(3, 4)];
-        let split = roomies.build_split(
-            vec![
-                roomies.borrow_by_name("bob").unwrap(),
-                roomies.borrow_by_name("joe").unwrap(),
-            ]
-            .into_iter()
-            .zip(usage_proportions)
-            .collect(),
-        );
+        let split = roomies
+            .build_split(
+                vec![
+                    roomies.borrow_by_name("bob").unwrap(),
+                    roomies.borrow_by_name("joe").unwrap(),
+                ]
+                .into_iter()
+                .zip(usage_proportions)
+                .collect(),
+            )
+            .unwrap();
         let total = Money::of_major_minor(USD, 99, 99);
         let shared_cost = Money::of_major_minor(USD, 35, 46);
         let bills = vec![
@@ -306,8 +359,8 @@ mod tests {
             new_bill(total * 2, shared_cost * 2),
         ];
         let share =
-            roomies.split_bill_list(bills.iter().map(|bill| (bill, &split)).collect::<Vec<_>>());
-        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
+            CostSplit::split_bill_list(bills.iter().map(|bill| (bill, &split)).collect::<Vec<_>>());
+        let bob_share = share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
         let expected = shared_cost.checked_mul_f(1.5).unwrap()
             + (total - shared_cost).checked_mul_f(0.25).unwrap() * 3;
         assert_eq!(bob_share, expected);
@@ -322,15 +375,17 @@ mod tests {
     fn list_of_zero_valued_bills() {
         let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::new(1, 4), Ratio::new(3, 4)];
-        let split = roomies.build_split(
-            vec![
-                roomies.borrow_by_name("bob").unwrap(),
-                roomies.borrow_by_name("joe").unwrap(),
-            ]
-            .into_iter()
-            .zip(usage_proportions)
-            .collect(),
-        );
+        let split = roomies
+            .build_split(
+                vec![
+                    roomies.borrow_by_name("bob").unwrap(),
+                    roomies.borrow_by_name("joe").unwrap(),
+                ]
+                .into_iter()
+                .zip(usage_proportions)
+                .collect(),
+            )
+            .unwrap();
         let total = Money::of_major_minor(USD, 0, 0);
         let shared_cost = Money::of_major_minor(USD, 0, 0);
         let bills = vec![
@@ -338,8 +393,8 @@ mod tests {
             new_bill(total * 2, shared_cost * 2),
         ];
         let bill_list: Vec<_> = bills.iter().map(|bill| (bill, &split)).collect();
-        let share = roomies.split_bill_list(bill_list);
-        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
+        let share = CostSplit::split_bill_list(bill_list);
+        let bob_share = share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
         let expected = Money::zero(USD);
         assert_eq!(bob_share, expected);
         assert_eq!(
@@ -353,40 +408,26 @@ mod tests {
     fn no_reponsibilities() {
         let roomies: RoommateGroup = vec!["bob", "joe"].into_iter().collect();
         let usage_proportions = vec![Ratio::from_integer(0), Ratio::from_integer(0)];
-        let split = roomies.build_split(
-            vec![
-                roomies.borrow_by_name("bob").unwrap(),
-                roomies.borrow_by_name("joe").unwrap(),
-            ]
-            .into_iter()
-            .zip(usage_proportions)
-            .collect(),
-        );
+        let split = roomies
+            .build_split(
+                vec![
+                    roomies.borrow_by_name("bob").unwrap(),
+                    roomies.borrow_by_name("joe").unwrap(),
+                ]
+                .into_iter()
+                .zip(usage_proportions)
+                .collect(),
+            )
+            .unwrap();
         let total = Money::of_major_minor(USD, 30, 0);
         let shared_cost = Money::of_major_minor(USD, 25, 0);
         let bills = vec![new_bill(total, shared_cost)];
         let bill_list: Vec<_> = bills.iter().map(|bill| (bill, &split)).collect();
-        let share = roomies.split_bill_list(bill_list);
-        let bob_share = *share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
-        let joe_share = *share.get(roomies.borrow_by_name("joe").unwrap()).unwrap();
+        let share = CostSplit::split_bill_list(bill_list);
+        let bob_share = share.get(roomies.borrow_by_name("bob").unwrap()).unwrap();
+        let joe_share = share.get(roomies.borrow_by_name("joe").unwrap()).unwrap();
         assert_eq!(bob_share, joe_share);
         assert_eq!(bob_share + joe_share, total);
-    }
-
-    #[test]
-    #[should_panic]
-    fn shared_cost_more_than_bill() {
-        let total = Money::of_major_minor(USD, 30, 0);
-        let shared_cost = Money::of_major_minor(USD, 35, 0);
-        vec![new_bill(total, shared_cost)];
-    }
-
-    #[test]
-    #[should_panic]
-    fn shared_cost_less_than_zero() {
-        let total = Money::of_major_minor(USD, 30, 0);
-        let shared_cost = Money::of_major_minor(USD, -1, 0);
-        vec![new_bill(total, shared_cost)];
     }
 
     #[test]
@@ -397,13 +438,18 @@ mod tests {
             .into_iter()
             .map(|p| Ratio::from_integer(p))
             .collect::<Vec<_>>();
-        let split = roomies.build_split(roomies.iter().zip(usage_proportions).collect());
+        let split = roomies
+            .build_split(roomies.iter().zip(usage_proportions).collect())
+            .unwrap();
         let total = Money::of_major_minor(USD, 20, 00);
         let shared_cost = Money::of_major_minor(USD, 10, 00);
         let bills = vec![new_bill(total, shared_cost)];
         let bill_list: Vec<_> = bills.iter().map(|bill| (bill, &split)).collect();
-        let share = roomies.split_bill_list(bill_list);
-        let actual_total = share.values().fold(Money::zero(USD), |a, x| a + x);
+        let share = CostSplit::split_bill_list(bill_list);
+        let actual_total = share
+            .into_iter()
+            .map(|(_, v)| v)
+            .fold(Money::zero(USD), |a, x| a + x);
         assert_eq!(total, actual_total);
     }
 }

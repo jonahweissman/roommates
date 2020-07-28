@@ -1,7 +1,19 @@
 use steel_cent::Money;
+use thiserror::Error;
 
 use super::interval::DateInterval;
-use crate::{Error, InvalidFixedCost::*};
+
+#[derive(Debug, Error, PartialEq)]
+pub enum BillError {
+    #[error("Fixed cost must be in the same currency as the amount due")]
+    MismatchedCurrencies,
+
+    #[error("Fixed cost cannot be more than the amount due")]
+    ExceedsAmountDue,
+
+    #[error("Fixed cost cannot be negative")]
+    Negative,
+}
 
 /// Stores information about a bill
 #[derive(Debug, Clone)]
@@ -35,8 +47,7 @@ impl Bill {
     /// cannot be negative or greater than the amount due.
     /// # Examples
     /// ```
-    /// use roommates::{DateInterval, sharing::Bill};
-    /// use roommates::{Error, InvalidFixedCost::*};
+    /// use roommates::{DateInterval, sharing::{Bill, BillError}};
     /// use steel_cent::{Money, currency::{USD, EUR}};
     ///
     /// let water_bill = Bill::new_with_fixed_cost(
@@ -51,27 +62,27 @@ impl Bill {
     ///     DateInterval::new((2020, 4, 15), (2020, 5, 15)).unwrap(),
     ///     Money::of_minor(EUR, 100_00),
     /// );
-    /// assert_eq!(bad_water_bill.unwrap_err(), Error::InvalidFixedCost(MismatchedCurrencies));
+    /// assert_eq!(bad_water_bill.unwrap_err(), BillError::MismatchedCurrencies);
     ///
     /// let bad_water_bill = Bill::new_with_fixed_cost(
     ///     Money::of_minor(USD, 183_22),
     ///     DateInterval::new((2020, 4, 15), (2020, 5, 15)).unwrap(),
     ///     Money::of_minor(USD, -100_00),
     /// );
-    /// assert_eq!(bad_water_bill.unwrap_err(), Error::InvalidFixedCost(Negative));
+    /// assert_eq!(bad_water_bill.unwrap_err(), BillError::Negative);
     ///
     /// let bad_water_bill = Bill::new_with_fixed_cost(
     ///     Money::of_minor(USD, 183_22),
     ///     DateInterval::new((2020, 4, 15), (2020, 5, 15)).unwrap(),
     ///     Money::of_minor(USD, 200_00),
     /// );
-    /// assert_eq!(bad_water_bill.unwrap_err(), Error::InvalidFixedCost(ExceedsAmountDue));
+    /// assert_eq!(bad_water_bill.unwrap_err(), BillError::ExceedsAmountDue);
     /// ```
     pub fn new_with_fixed_cost(
         amount_due: Money,
         usage_period: DateInterval,
         fixed_cost: Money,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, BillError> {
         verify_shared_amount(amount_due, fixed_cost)?;
         Ok(Bill {
             amount_due,
@@ -103,6 +114,11 @@ impl Bill {
     /// ```
     pub fn fixed_cost(&self) -> Money {
         self.fixed_cost
+    }
+
+    /// Returns the non-fixed portion of the `Bill`
+    pub fn variable_cost(&self) -> Money {
+        self.amount_due - self.fixed_cost
     }
 
     /// Returns the total cost of the `Bill`
@@ -149,6 +165,7 @@ impl Bill {
 /// fixed cost becoming the shared amount) but for bills that
 /// are usage dependent, there might be an additional implicit fixed cost that
 /// can be inferred based on a bill history
+#[derive(Debug)]
 pub struct SharedBill {
     bill: Bill,
     shared_amount: Money,
@@ -169,7 +186,7 @@ impl SharedBill {
     /// let water_bill = SharedBill::new(water_bill, Money::of_minor(USD, 30_00));
     /// assert!(water_bill.is_ok());
     /// ```
-    pub fn new(bill: Bill, shared_amount: Money) -> Result<Self, Error> {
+    pub fn new(bill: Bill, shared_amount: Money) -> Result<Self, BillError> {
         verify_shared_amount(bill.amount_due(), shared_amount)?;
         Ok(SharedBill {
             bill,
@@ -235,15 +252,49 @@ impl SharedBill {
     }
 }
 
-fn verify_shared_amount(amount_due: Money, shared_amount: Money) -> Result<(), Error> {
+fn verify_shared_amount(amount_due: Money, shared_amount: Money) -> Result<(), BillError> {
     let error = if amount_due.currency != shared_amount.currency {
-        MismatchedCurrencies
+        BillError::MismatchedCurrencies
     } else if shared_amount > amount_due {
-        ExceedsAmountDue
+        BillError::ExceedsAmountDue
     } else if shared_amount < Money::zero(shared_amount.currency) {
-        Negative
+        BillError::Negative
     } else {
         return Ok(());
     };
-    Err(Error::InvalidFixedCost(error))
+    Err(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use steel_cent::currency::USD;
+
+    #[test]
+    fn shared_cost_more_than_bill() {
+        let total = Money::of_major_minor(USD, 30, 0);
+        let shared = Money::of_major_minor(USD, 35, 0);
+        let bill = SharedBill::new(
+            Bill::new(
+                total,
+                DateInterval::new((2020, 1, 2), (2020, 2, 2)).unwrap(),
+            ),
+            shared,
+        );
+        assert!(bill.is_err());
+    }
+
+    #[test]
+    fn shared_cost_less_than_zero() {
+        let total = Money::of_major_minor(USD, 30, 0);
+        let shared = Money::of_major_minor(USD, -1, 0);
+        let bill = SharedBill::new(
+            Bill::new(
+                total,
+                DateInterval::new((2020, 1, 2), (2020, 2, 2)).unwrap(),
+            ),
+            shared,
+        );
+        assert!(bill.is_err());
+    }
 }

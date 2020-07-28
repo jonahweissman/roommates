@@ -66,7 +66,7 @@ impl RoommateGroup {
     /// assert_eq!(group.borrow_by_name("Steve"), None);
     /// ```
     pub fn borrow_by_name(&self, name: &str) -> Option<&Roommate> {
-        self.0.iter().find(|r| r.0 == name)
+        self.0.iter().find(|Roommate(n)| n == name)
     }
 }
 
