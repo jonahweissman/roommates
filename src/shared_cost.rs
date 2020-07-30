@@ -3,7 +3,7 @@ use linregress::{
 };
 use std::collections::HashMap;
 use std::iter;
-use steel_cent::Money;
+use steel_cent::{Currency, Money};
 use thiserror::Error;
 
 use super::bill::{Bill, SharedBill};
@@ -35,8 +35,8 @@ impl SharedBill {
     ///
     /// Performs poorly if temperature index and occupancy always vary
     /// together
-    /// 
-    /// make sure to use the `variable_cost` for the DependentaVariable
+    ///
+    /// make sure to use the `variable_cost` for the DependentVariable
     /// not the amount due
     ///
     /// You will need several bills worth of data for this to work
@@ -50,35 +50,33 @@ impl SharedBill {
     ///     Money::of_minor(USD, 40_27),
     ///     DateInterval::from_strs("01/01/01", "02/02/02").unwrap(),
     /// );
-    /// let to_money = |DependentVariable(x)| Money::of_minor(USD, x as i64);
-    /// let current_data = (Occupancy(30), DependentVariable(40_27.0));
+    /// let to_money = |x| x;
+    /// let current_data = (Occupancy(30), DependentVariable::new(40_27.0, USD, to_money));
     /// let bill_history = vec![
-    ///     (Occupancy(10), DependentVariable(20_00.0)),
-    ///     (Occupancy(15), DependentVariable(25_00.0)),
-    ///     (Occupancy(20), DependentVariable(30_00.0)),
+    ///     (Occupancy(10), DependentVariable::new(20_00.0, USD, to_money)),
+    ///     (Occupancy(15), DependentVariable::new(25_00.0, USD, to_money)),
+    ///     (Occupancy(20), DependentVariable::new(30_00.0, USD, to_money)),
     /// ];
     /// let shared = SharedBill::from_estimate(
     ///     (current_bill, current_data),
     ///     bill_history,
-    ///     to_money,
     /// ).unwrap();
     /// assert_eq!(shared.shared_amount(), Money::of_minor(USD, 10_00));
     /// ```
     pub fn from_estimate<I, X, F>(
-        (bill, (bill_x, bill_y)): (Bill, (X, DependentVariable)),
+        (bill, (bill_x, bill_y)): (Bill, (X, DependentVariable<F>)),
         bill_history: I,
-        to_money: F,
     ) -> Result<Self, EstimationError>
     where
-        I: IntoIterator<Item = (X, DependentVariable)>,
+        I: IntoIterator<Item = (X, DependentVariable<F>)>,
         X: IndependentVariable,
-        F: Fn(DependentVariable) -> Money + Copy,
+        F: Fn(f64) -> f64 + Copy,
     {
-        let model = SharedCostEstimator::new(bill_history, to_money)?;
+        let model = SharedCostEstimator::new(bill_history, |x| bill_y.to_money(x))?;
         if model.rsquared() < 0.70 {
             return Err(EstimationError::ModelFitsDataPoorly(model.rsquared()));
         };
-        let error = model.mape((&bill_x, bill_y));
+        let error = model.mape((&bill_x, &bill_y));
         if error > 0.2 {
             return Err(EstimationError::ModelPredictsPoorly(error));
         };
@@ -143,17 +141,18 @@ impl SharedBill {
 ///
 /// to_money is applied to the output of the internal `RegressionModel` to
 /// convert it to a `Money` value for use as a `shared_amount`.
-pub struct SharedCostEstimator<F: Fn(DependentVariable) -> Money> {
+pub struct SharedCostEstimator<F: Fn(f64) -> Money> {
     model: RegressionModel,
     to_money: F,
 }
 
-impl<F: Fn(DependentVariable) -> Money> SharedCostEstimator<F> {
+impl<F: Fn(f64) -> Money> SharedCostEstimator<F> {
     /// Returns a new `SharedCostEstimator` fitted on the given data
-    fn new<'a, X, I>(bill_history: I, to_money: F) -> Result<Self, EstimationError>
+    fn new<'a, X, I, G>(bill_history: I, to_money: F) -> Result<Self, EstimationError>
     where
-        I: IntoIterator<Item = (X, DependentVariable)>,
+        I: IntoIterator<Item = (X, DependentVariable<G>)>,
         X: IndependentVariable,
+        G: Fn(f64) -> f64,
     {
         let data = RegressionDataBuilder::new()
             .build_from(extract_variables(bill_history))
@@ -179,14 +178,12 @@ impl<F: Fn(DependentVariable) -> Money> SharedCostEstimator<F> {
                            consistent with other methods; column not in data: {}",
                     col
                 ),
-                LinregressError::RegressorRegressandDimensionMismatch(_) =>
-                    panic!("RegressorRegressandDimensionMismatch"),
+                LinregressError::RegressorRegressandDimensionMismatch(_) => {
+                    panic!("RegressorRegressandDimensionMismatch")
+                }
                 _ => panic!("Unrecognized error from linregress: {:?}", source),
             })?;
-        Ok(SharedCostEstimator {
-            model,
-            to_money,
-        })
+        Ok(SharedCostEstimator { model, to_money })
     }
 
     /// Returns the predicted cost of a bill given some `IndependentVariable`
@@ -208,7 +205,7 @@ impl<F: Fn(DependentVariable) -> Money> SharedCostEstimator<F> {
                 LinregressError::ModelColumnNotInData(col) => panic!("Input columns don't line up, extra column: {} (should never happen)", col),
                 _ => panic!("Unrecognized error from linregress: {:?}", source),
             }).unwrap()[0];
-        (self.to_money)(DependentVariable(raw_output))
+        (self.to_money)(raw_output)
     }
 
     /// Returns the predicted cost of a bill if the housing unit had been empty
@@ -230,28 +227,30 @@ impl<F: Fn(DependentVariable) -> Money> SharedCostEstimator<F> {
     ///
     /// |actual - predicted| / actual
     /// closer to zero is better
-    fn mape<X>(&self, (x, y): (&X, DependentVariable)) -> f64
+    fn mape<X, G>(&self, (x, y): (&X, &DependentVariable<G>)) -> f64
     where
         X: IndependentVariable,
+        G: Fn(f64) -> f64,
     {
         let predicted = self.predict(x).minor_amount() as f64;
-        let actual = (self.to_money)(y).minor_amount() as f64;
+        let actual = (y.as_money()).minor_amount() as f64;
         (actual - predicted).abs() / actual
     }
 }
 
 /// Returns the given data in the format expected by `linregress`
-fn extract_variables<I, X>(bill_history: I) -> HashMap<&'static str, Vec<f64>>
+fn extract_variables<I, X, F>(bill_history: I) -> HashMap<&'static str, Vec<f64>>
 where
-    I: IntoIterator<Item = (X, DependentVariable)>,
+    I: IntoIterator<Item = (X, DependentVariable<F>)>,
     X: IndependentVariable,
+    F: Fn(f64) -> f64,
 {
     let mut data = HashMap::new();
-    for (x, DependentVariable(y)) in bill_history {
+    for (x, y) in bill_history {
         for (label, val) in x
             .to_linregress_data_fmt()
             .into_iter()
-            .chain(iter::once(("Y", y)))
+            .chain(iter::once(("Y", y.value)))
         {
             data.entry(label).or_insert_with(Vec::new).push(val);
         }
@@ -262,7 +261,29 @@ where
 /// represents any usage related
 /// measurement. This can be the minor amount of the bill cost or
 /// kWh or anything like that.  
-pub struct DependentVariable(pub f64);
+pub struct DependentVariable<F: Fn(f64) -> f64> {
+    value: f64,
+    output_function: F,
+    currency: Currency,
+}
+
+impl<F: Fn(f64) -> f64> DependentVariable<F> {
+    pub fn new(value: f64, currency: Currency, output_function: F) -> Self {
+        DependentVariable {
+            value,
+            output_function,
+            currency,
+        }
+    }
+
+    pub fn to_money(&self, value: f64) -> Money {
+        Money::of_minor(self.currency, (self.output_function)(value) as i64)
+    }
+
+    pub fn as_money(&self) -> Money {
+        self.to_money(self.value)
+    }
+}
 
 /// An input for building a `SharedCostEstimator`
 ///
@@ -326,22 +347,29 @@ where
 {
     let period = bill.usage_period();
     let amount_due = bill.variable_cost();
-    let to_money = |DependentVariable(x)| Money::of_minor(amount_due.currency, x as i64);
+    let usage_function = |x| x;
     Ok(SharedBill::from_estimate(
         (
             bill,
             (
                 Occupancy(intervals.occupancy_over(period)),
-                DependentVariable(amount_due.minor_amount() as f64),
+                DependentVariable::new(
+                    amount_due.minor_amount() as f64,
+                    amount_due.currency,
+                    usage_function,
+                ),
             ),
         ),
         history.into_iter().map(|b| {
             (
                 Occupancy(intervals.occupancy_over(b.usage_period())),
-                DependentVariable(b.amount_due().minor_amount() as f64),
+                DependentVariable::new(
+                    b.amount_due().minor_amount() as f64,
+                    amount_due.currency,
+                    usage_function,
+                ),
             )
         }),
-        to_money,
     )?)
 }
 
@@ -354,22 +382,29 @@ where
 {
     let period = bill.usage_period();
     let amount_due = bill.variable_cost();
-    let to_money = |DependentVariable(x)| Money::of_minor(amount_due.currency, x as i64);
+    let usage_function = |x| x;
     Ok(SharedBill::from_estimate(
         (
             bill,
             (
                 OccupancyAndTemperature(intervals.occupancy_over(period), current_ti),
-                DependentVariable(amount_due.minor_amount() as f64),
+                DependentVariable::new(
+                    amount_due.minor_amount() as f64,
+                    amount_due.currency,
+                    usage_function,
+                ),
             ),
         ),
         history.into_iter().map(|(b, ti)| {
             (
                 OccupancyAndTemperature(intervals.occupancy_over(b.usage_period()), ti),
-                DependentVariable(b.amount_due().minor_amount() as f64),
+                DependentVariable::new(
+                    b.amount_due().minor_amount() as f64,
+                    amount_due.currency,
+                    usage_function,
+                ),
             )
         }),
-        to_money,
     )?)
 }
 
@@ -379,17 +414,18 @@ mod tests {
     use crate::interval::DateInterval;
     use steel_cent::currency::USD;
 
-    fn build_bills(
+    fn build_bills<F: Fn(f64) -> f64 + Copy>(
         history: Vec<(i64, u32)>,
         (current_amount, current_oc): (i64, u32),
+        f: F,
     ) -> (
-        Vec<(Occupancy, DependentVariable)>,
+        Vec<(Occupancy, DependentVariable<F>)>,
         Bill,
-        (Occupancy, DependentVariable),
+        (Occupancy, DependentVariable<F>),
     ) {
         let bills = history
             .into_iter()
-            .map(|(m, oc)| (Occupancy(oc), DependentVariable(m as f64)))
+            .map(|(m, oc)| (Occupancy(oc), DependentVariable::new(m as f64, USD, f)))
             .collect::<Vec<_>>();
         let bill = Bill::new(
             Money::of_minor(USD, current_amount),
@@ -397,23 +433,29 @@ mod tests {
         );
         let notes = (
             Occupancy(current_oc),
-            DependentVariable(current_amount as f64),
+            DependentVariable::new(current_amount as f64, USD, f),
         );
         (bills, bill, notes)
     }
 
-    fn build_bills_ti(
+    fn build_bills_ti<F: Fn(f64) -> f64 + Copy>(
         history: Vec<(i64, u32, f64)>,
         (current_amount, current_oc, current_ti): (i64, u32, f64),
+        f: F,
     ) -> (
-        Vec<(OccupancyAndTemperature, DependentVariable)>,
+        Vec<(OccupancyAndTemperature, DependentVariable<F>)>,
         Bill,
-        (OccupancyAndTemperature, DependentVariable),
+        (OccupancyAndTemperature, DependentVariable<F>),
     ) {
         assert!(history.len() > 1);
         let bills = history
             .into_iter()
-            .map(|(m, oc, ti)| (OccupancyAndTemperature(oc, ti), DependentVariable(m as f64)))
+            .map(|(m, oc, ti)| {
+                (
+                    OccupancyAndTemperature(oc, ti),
+                    DependentVariable::new(m as f64, USD, f),
+                )
+            })
             .collect::<Vec<_>>();
         let bill = Bill::new(
             Money::of_minor(USD, current_amount),
@@ -421,14 +463,15 @@ mod tests {
         );
         let notes = (
             OccupancyAndTemperature(current_oc, current_ti),
-            DependentVariable(current_amount as f64),
+            DependentVariable::new(current_amount as f64, USD, f),
         );
         (bills, bill, notes)
     }
 
     #[test]
     fn get_variables_from_simple_bill_history() {
-        let (bills, _, _) = build_bills(vec![(20_00, 1), (30_00, 2), (40_00, 3)], (50_00, 0));
+        let (bills, _, _) =
+            build_bills(vec![(20_00, 1), (30_00, 2), (40_00, 3)], (50_00, 0), |x| x);
         let variables = extract_variables(bills);
         assert_eq!(variables.get("Y").unwrap(), &vec![2000.0, 3000.0, 4000.0]);
         assert_eq!(variables.get("Occupancy").unwrap(), &vec![1.0, 2.0, 3.0]);
@@ -439,11 +482,9 @@ mod tests {
         let (bills, current, notes) = build_bills(
             vec![(10_00, 0), (20_00, 1), (30_00, 2), (40_00, 3)],
             (50_00, 4),
+            |x| x,
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, x as i64)
-        })
-        .unwrap();
+        let current = SharedBill::from_estimate((current, notes), bills).unwrap();
         assert!((current.shared_amount() - Money::of_minor(USD, 10_00)) <= Money::of_minor(USD, 1));
     }
 
@@ -452,11 +493,13 @@ mod tests {
         let (bills, current, notes) = build_bills(
             vec![(10_00, 0), (20_00, 1), (30_00, 2), (40_00, 3)],
             (20_00, 4),
+            |x| x,
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, x as i64)
-        });
-        assert!(matches!(current, Err(EstimationError::ModelPredictsPoorly(_))));
+        let current = SharedBill::from_estimate((current, notes), bills);
+        assert!(matches!(
+            current,
+            Err(EstimationError::ModelPredictsPoorly(_))
+        ));
     }
 
     #[test]
@@ -464,11 +507,13 @@ mod tests {
         let (bills, current, notes) = build_bills(
             vec![(50_00, 0), (20_00, 1), (30_00, 2), (40_00, 3)],
             (50_00, 4),
+            |x| x,
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, x as i64)
-        });
-        assert!(matches!(current, Err(EstimationError::ModelFitsDataPoorly(_))));
+        let current = SharedBill::from_estimate((current, notes), bills);
+        assert!(matches!(
+            current,
+            Err(EstimationError::ModelFitsDataPoorly(_))
+        ));
     }
 
     #[test]
@@ -476,49 +521,57 @@ mod tests {
         let (bills, current, notes) = build_bills(
             vec![(20_00, 1), (20_00, 1), (20_00, 1), (20_00, 1)],
             (50_00, 4),
+            |x| x,
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, x as i64)
-        });
+        let current = SharedBill::from_estimate((current, notes), bills);
         assert!(matches!(current, Err(EstimationError::InvalidModelData(_))));
     }
 
     #[test]
     fn bill_history_with_temperature() {
         let (bills, current, notes) = build_bills_ti(
-            vec![(24_00, 1, 4.0), (34_00, 2, 4.0), (42_00, 3, 2.0), (43_00, 3, 3.0)],
+            vec![
+                (24_00, 1, 4.0),
+                (34_00, 2, 4.0),
+                (42_00, 3, 2.0),
+                (43_00, 3, 3.0),
+            ],
             (41_50, 3, 1.0),
+            |x| x,
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, x as i64)
-        })
-        .unwrap();
+        let current = SharedBill::from_estimate((current, notes), bills).unwrap();
         assert_eq!(current.shared_amount(), Money::of_minor(USD, 11_00));
     }
 
     #[test]
     fn scaled_cost_function() {
         let (bills, current, notes) = build_bills_ti(
-            vec![(24_00, 1, 4.0), (34_00, 2, 4.0), (42_00, 3, 2.0), (43_00, 3, 3.0)],
+            vec![
+                (24_00, 1, 4.0),
+                (34_00, 2, 4.0),
+                (42_00, 3, 2.0),
+                (43_00, 3, 3.0),
+            ],
             (41_50, 3, 1.0),
+            |x| 2.0 * x,
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, 2 * x as i64)
-        })
-        .unwrap();
+        let current = SharedBill::from_estimate((current, notes), bills).unwrap();
         assert_eq!(current.shared_amount(), Money::of_minor(USD, 2 * 11_00));
     }
 
     #[test]
     fn nonlinear_cost_function() {
         let (bills, current, notes) = build_bills_ti(
-            vec![(24_00, 1, 4.0), (34_00, 2, 4.0), (42_00, 3, 2.0), (43_00, 3, 3.0)],
+            vec![
+                (24_00, 1, 4.0),
+                (34_00, 2, 4.0),
+                (42_00, 3, 2.0),
+                (43_00, 3, 3.0),
+            ],
             (41_50, 3, 1.0),
+            |x| x.sqrt(),
         );
-        let current = SharedBill::from_estimate((current, notes), bills, |DependentVariable(x)| {
-            Money::of_minor(USD, x.sqrt() as i64)
-        })
-        .unwrap();
+        let current = SharedBill::from_estimate((current, notes), bills).unwrap();
         assert_eq!(
             current.shared_amount(),
             Money::of_minor(USD, (11_00 as f64).sqrt() as _)

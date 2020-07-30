@@ -242,7 +242,7 @@ where
             for (roommate, share) in split.hash_map() {
                 invoice_components
                     .entry(roommate.clone())
-                    .or_insert_with(|| vec![])
+                    .or_insert_with(Vec::new)
                     .push(InvoiceComponent {
                         label: String::from(label),
                         responsibility_proportion: share,

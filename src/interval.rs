@@ -29,7 +29,7 @@ pub enum IntervalError {
 ///
 /// [`Roommate`]: struct.Roommate.html
 /// [`ResponsibilityRecord`]: struct.ResponsibilityRecord.html
-#[derive(Clone)]
+#[derive(Clone, Debug, Hash)]
 pub struct ResponsibilityInterval<'a> {
     roommate: &'a Roommate,
     interval: DateInterval,
@@ -120,6 +120,7 @@ impl ResponsibilityRecord<'_> {
     /// # Examples
     /// ```
     /// use roommates::{Roommate, ResponsibilityInterval, DateInterval, ResponsibilityRecord};
+    /// use std::collections::HashSet;
     ///
     /// let bob = Roommate::new("Bob");
     /// let joe = Roommate::new("Joe");
@@ -136,8 +137,10 @@ impl ResponsibilityRecord<'_> {
     ///     ),
     /// ].into_iter().collect();
     /// let mut record_iter = records.iter();
-    /// assert_eq!(record_iter.next().unwrap().roommate(), &bob);
-    /// assert_eq!(record_iter.next().unwrap().roommate(), &joe);
+    /// assert_eq!(
+    ///     records.iter().map(|r| r.roommate()).collect::<HashSet<_>>(),
+    ///     vec![&bob, &joe].into_iter().collect::<HashSet<_>>(),
+    /// );
     /// ```
     pub fn iter(&self) -> Iter<ResponsibilityInterval> {
         self.intervals.iter()
@@ -200,7 +203,7 @@ impl<'a> FromIterator<ResponsibilityInterval<'a>> for ResponsibilityRecord<'a> {
 /// The time between a start date and an end date, inclusive
 ///
 /// Does not store timezone information.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq)]
 pub struct DateInterval(NaiveDate, NaiveDate);
 
 impl DateInterval {

@@ -66,7 +66,10 @@ pub use roommate::{Roommate, RoommateGroup};
 
 pub mod sharing {
     pub use super::bill::{Bill, BillError, SharedBill};
-    pub use super::shared_cost::{convert_to_shared, convert_to_shared_ti, EstimationError, Occupancy, OccupancyAndTemperature, DependentVariable, IndependentVariable};
+    pub use super::shared_cost::{
+        convert_to_shared, convert_to_shared_ti, DependentVariable, EstimationError,
+        IndependentVariable, Occupancy, OccupancyAndTemperature,
+    };
 }
 
 pub mod splitting {
